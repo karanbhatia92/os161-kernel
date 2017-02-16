@@ -330,3 +330,45 @@ cv_broadcast(struct cv *cv, struct lock *lock)
 //	(void)cv;    // suppress warning until code gets written
 //	(void)lock;  // suppress warning until code gets written
 }
+
+struct rwlock *rwlock_create(const char *name) {
+	
+	struct rwlock *rwlock;
+	
+	rwlock = kmalloc(sizeof(*rwlock));
+	if (rwlock == NULL) {
+		return NULL;
+	}
+
+	rwlock->rwlock_name = kstrdup(name);
+	if (rwlock->rwlock_name == NULL) {
+		kfree(rwlock);
+		return NULL;
+	}
+
+	return rwlock;
+}
+
+void rwlock_destroy(struct rwlock *rwlock) {
+	
+	KASSERT(rwlock != NULL);
+
+	kfree(rwlock->rwlock_name);
+	kfree(rwlock);
+}
+
+void rwlock_acquire_read(struct rwlock *rwlock) {
+	(void)rwlock;
+}
+
+void rwlock_release_read(struct rwlock *rwlock) {
+	(void)rwlock;
+}
+
+void rwlock_acquire_write(struct rwlock *rwlock) {
+	(void)rwlock;
+}
+
+void rwlock_release_write(struct rwlock *rwlock) {
+	(void)rwlock;
+}

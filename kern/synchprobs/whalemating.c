@@ -39,13 +39,38 @@
 #include <thread.h>
 #include <test.h>
 #include <synch.h>
-
 /*
  * Called by the driver during initialization.
  */
 
+static volatile int male_num;
+static volatile int female_num;
+struct lock *wmlock;
+struct cv *malecv;
+struct cv *femalecv;
+struct cv *matchmakercv;
+
 void whalemating_init() {
-	return;
+	male_num = 0;
+	female_num = 0;
+	malecv = cv_create("malecv");
+	if (malecv == NULL) {
+		panic("cv_create for malecv failed\n");
+	}
+ 	femalecv = cv_create("femalecv");
+	if (femalecv == NULL) {
+		panic("cv_create for femalecv failed\n");
+	}
+	matchmakercv = cv_create("matchmakercv");
+	if (matchmakercv == NULL) {
+		panic("cv_create for matchmakercv failed\n");
+	}
+	wmlock = lock_create("wmlock");
+	if (wmlock == NULL) {
+		panic("lock_create for wmlock failed\n");
+	}
+
+	//return;
 }
 
 /*
@@ -54,24 +79,45 @@ void whalemating_init() {
 
 void
 whalemating_cleanup() {
+	cv_destroy(malecv);
+	cv_destroy(femalecv);
+	cv_destroy(matchmakercv);
+	lock_destroy(wmlock);
 	return;
 }
 
 void
 male(uint32_t index)
 {
-	(void)index;
+	//(void)index;
 	/*
 	 * Implement this function by calling male_start and male_end when
 	 * appropriate.
 	 */
+	male_start(index);
+	lock_acquire(wmlock);
+	male_num++;
+	cv_signal(matchmakercv, wmlock);
+	cv_wait(malecv, wmlock);
+	male_end(index);
+	male_num--;
+	cv_signal(femalecv, wmlock);
+	lock_release(wmlock);
 	return;
 }
 
 void
 female(uint32_t index)
 {
-	(void)index;
+	female_start(index);
+	lock_acquire(wmlock);
+	female_num++;
+	cv_signal(matchmakercv, wmlock);
+	cv_wait(femalecv, wmlock);
+	female_end(index);
+	female_num--;
+	lock_release(wmlock);	
+	//(void)index;
 	/*
 	 * Implement this function by calling female_start and female_end when
 	 * appropriate.
@@ -82,7 +128,15 @@ female(uint32_t index)
 void
 matchmaker(uint32_t index)
 {
-	(void)index;
+	matchmaker_start(index);
+	lock_acquire(wmlock);
+	while (female_num == 0 || male_num == 0) {
+		cv_wait(matchmakercv, wmlock);
+	}
+	matchmaker_end(index);
+	cv_signal(malecv, wmlock);
+	lock_release(wmlock);
+	//(void)index;
 	/*
 	 * Implement this function by calling matchmaker_start and matchmaker_end
 	 * when appropriate.

@@ -443,7 +443,7 @@ void
 check_intersection() {
 	int n = 0;
 	for (int i = 0; i < NUM_QUADRANTS; i++) {
-		failif((quadrant_array[i] > 1), "failed: collision");
+		failif((quadrant_array[i] > 1), "failed: collision in check intersection");
 		n += quadrant_array[i];
 	}
 	max_car_count = n > max_car_count ? n : max_car_count;
@@ -553,7 +553,7 @@ inQuadrant(int quadrant, uint32_t index) {
 	failif((quadrant != target_quadrant), "failed: invalid turn");
 	car_turn_times[index]++;
 
-	failif((quadrant_array[quadrant] > 0), "failed: collision");
+	failif((quadrant_array[quadrant] > 0), "failed: collision inquadrant");
 
 	quadrant_array[quadrant]++;
 	car_locations[index] = quadrant;

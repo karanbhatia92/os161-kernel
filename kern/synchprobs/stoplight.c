@@ -72,9 +72,62 @@
 /*
  * Called by the driver during initialization.
  */
+struct lock *lock0;
+struct lock *lock1;
+struct lock *lock2;
+struct lock *lock3;
+struct lock *counterlock;
+struct cv *sharedcv;
+static volatile int counter = 0;
+
+struct lock *give_lock(uint32_t direction) {
+	struct lock *lockgen = NULL;
+	switch(direction){
+		case 0:
+		lockgen = lock0;
+		break;
+
+		case 1:
+		lockgen = lock1;
+		break;
+
+		case 2:
+		lockgen = lock2;
+		break;
+
+		case 3:
+		lockgen = lock3;
+		break;
+	}
+	return lockgen;
+}
 
 void
 stoplight_init() {
+	lock0 = lock_create("lock0");
+        if (lock0 == NULL) {
+                panic("lock_create for direction 0 failed\n");
+        }
+	lock1 = lock_create("lock1");
+        if (lock1 == NULL) {
+                panic("lock_create for direction 1 failed\n");
+        }
+	lock2 = lock_create("lock2");
+        if (lock2 == NULL) {
+                panic("lock_create for direction 2 failed\n");
+        }
+	lock3 = lock_create("lock3");
+        if (lock3 == NULL) {
+                panic("lock_create for direction 3 failed\n");
+        }
+	counterlock = lock_create("counterlock");
+        if (counterlock == NULL) {
+                panic("lock_create for counterlock failed\n");
+        }
+	sharedcv = cv_create("sharedcv");
+	if (sharedcv == NULL) {
+		panic("cv_create failed for sharedcv");
+	}
 	return;
 }
 
@@ -83,14 +136,39 @@ stoplight_init() {
  */
 
 void stoplight_cleanup() {
+	lock_destroy(lock0);
+	lock_destroy(lock1);
+	lock_destroy(lock2);
+	lock_destroy(lock3);
+	cv_destroy(sharedcv);
 	return;
 }
 
 void
 turnright(uint32_t direction, uint32_t index)
 {
-	(void)direction;
-	(void)index;
+	//(void)direction;
+	//(void)index;
+	struct lock *lockright = give_lock(direction);
+	KASSERT(lockright != NULL);
+	lock_acquire(counterlock);
+	while (counter >= 3) {
+		cv_wait(sharedcv, counterlock);
+	}	
+	lock_acquire(lockright);
+	counter++;
+	lock_release(counterlock);
+	inQuadrant((int)direction, index);
+	leaveIntersection(index);
+	lock_release(lockright);
+	lock_acquire(counterlock);
+	counter--;
+//	if(counter < 3) {
+		cv_signal(sharedcv, counterlock);
+//	}
+	lock_release(counterlock);
+
+	
 	/*
 	 * Implement this function.
 	 */
@@ -99,8 +177,41 @@ turnright(uint32_t direction, uint32_t index)
 void
 gostraight(uint32_t direction, uint32_t index)
 {
-	(void)direction;
-	(void)index;
+	//(void)direction;
+	//(void)index;
+	struct lock *lockcur = give_lock(direction);
+	KASSERT(lockcur != NULL);
+	struct lock *locknext = NULL;
+        int next = -1;
+	
+
+	if(direction == 0) {
+		next = 3;
+	} else {
+		next = (int)direction - 1;
+	}
+	
+	lock_acquire(counterlock);
+	while (counter >= 3) {
+		cv_wait(sharedcv, counterlock);
+	}	
+	lock_acquire(lockcur);
+	counter++;
+	lock_release(counterlock);
+	inQuadrant((int)direction, index);
+        locknext = give_lock((uint32_t)next);
+	KASSERT(locknext != NULL);
+	lock_acquire(locknext);
+	inQuadrant(next, index);
+	lock_release(lockcur);
+
+	leaveIntersection(index);
+	
+	lock_release(locknext);
+	lock_acquire(counterlock);
+	counter--;
+	cv_signal(sharedcv, counterlock);
+	lock_release(counterlock);
 	/*
 	 * Implement this function.
 	 */
@@ -109,10 +220,56 @@ gostraight(uint32_t direction, uint32_t index)
 void
 turnleft(uint32_t direction, uint32_t index)
 {
-	(void)direction;
-	(void)index;
+	//(void)direction;
+	//(void)index;
 	/*
 	 * Implement this function.
-	 */
+	 */	
+	struct lock *lockcurrent = give_lock(direction);
+	KASSERT(lockcurrent != NULL);
+	struct lock *lockforward = NULL;
+	struct lock *lockleft = NULL;
+        int forward = -1;
+	int left = -1;
+
+	if(direction == 0) {
+		forward = 3;
+		left = 2;
+	} else if (direction == 1) {
+		forward = 0;
+		left = 3;
+	} else {
+		forward = (int)direction - 1;
+		left = forward - 1;
+	}
+	
+	KASSERT(forward != -1);
+	KASSERT(left != -1);
+
+	lock_acquire(counterlock);
+	while (counter >= 3) {
+		cv_wait(sharedcv, counterlock);
+	}	
+	lock_acquire(lockcurrent);
+	counter++;
+	lock_release(counterlock);
+	inQuadrant((int)direction, index);
+	lockforward = give_lock((uint32_t)forward);	
+	KASSERT(lockforward != NULL);
+	lock_acquire(lockforward);
+	inQuadrant(forward, index);
+	lock_release(lockcurrent);
+	lockleft = give_lock((uint32_t)left);
+	lock_acquire(lockleft);
+	inQuadrant(left, index);
+	lock_release(lockforward);
+	leaveIntersection(index);
+	lock_release(lockleft);
+	
+	lock_acquire(counterlock);
+	counter--;
+	cv_signal(sharedcv, counterlock);
+	lock_release(counterlock);
+	
 	return;
 }
