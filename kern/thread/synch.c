@@ -345,30 +345,87 @@ struct rwlock *rwlock_create(const char *name) {
 		kfree(rwlock);
 		return NULL;
 	}
+	
+	rwlock->readercv = cv_create("readercv");
+	if(rwlock->readercv == NULL) {
+		kfree(rwlock->rwlock_name);
+		kfree(rwlock);
+		return NULL;
+	}
 
+	rwlock->writercv = cv_create("writercv");
+	if(rwlock->readercv == NULL) {
+		kfree(rwlock->rwlock_name);
+		kfree(rwlock);
+		return NULL;
+	}
+
+	rwlock->rwsleeplock = lock_create(rwlock->rwlock_name);
+	if(rwlock->rwsleeplock == NULL) {
+		kfree(rwlock->rwlock_name);
+		kfree(rwlock);
+		return NULL;
+	}
+	rwlock->writerin = false;
+	rwlock->writerwaiting = 0;
+	rwlock->readersin = 0;
 	return rwlock;
 }
 
 void rwlock_destroy(struct rwlock *rwlock) {
 	
 	KASSERT(rwlock != NULL);
-
+	cv_destroy(rwlock->readercv);
+	cv_destroy(rwlock->writercv);
+	lock_destroy(rwlock->rwsleeplock);	
 	kfree(rwlock->rwlock_name);
 	kfree(rwlock);
 }
 
 void rwlock_acquire_read(struct rwlock *rwlock) {
-	(void)rwlock;
+	//(void)rwlock;
+	lock_acquire(rwlock->rwsleeplock);
+	while(rwlock->writerin == true || rwlock->writerwaiting > 0) {
+		cv_wait(rwlock->readercv, rwlock->rwsleeplock);
+	}
+	rwlock->readersin++;
+	lock_release(rwlock->rwsleeplock);
 }
 
 void rwlock_release_read(struct rwlock *rwlock) {
-	(void)rwlock;
+	//(void)rwlock;
+	lock_acquire(rwlock->rwsleeplock);
+	rwlock->readersin--;
+	if(rwlock->readersin == 0) {
+		if(rwlock->writerwaiting > 0) {
+			cv_signal(rwlock->writercv, rwlock->rwsleeplock);
+		} else {
+			cv_broadcast(rwlock->readercv, rwlock->rwsleeplock);
+		}
+	}
+	lock_release(rwlock->rwsleeplock);
 }
 
 void rwlock_acquire_write(struct rwlock *rwlock) {
-	(void)rwlock;
+	//(void)rwlock;
+	lock_acquire(rwlock->rwsleeplock);
+	rwlock->writerwaiting++;
+	while(rwlock->readersin > 0 || rwlock->writerin == true) {
+		cv_wait(rwlock->writercv, rwlock->rwsleeplock);
+	}
+	rwlock->writerin = true;
+	rwlock->writerwaiting--;
+	lock_release(rwlock->rwsleeplock);
 }
 
 void rwlock_release_write(struct rwlock *rwlock) {
-	(void)rwlock;
+	//(void)rwlock;
+	lock_acquire(rwlock->rwsleeplock);
+	if(rwlock->writerwaiting > 0) {
+		cv_signal(rwlock->writercv, rwlock->rwsleeplock);
+	} else {
+		cv_broadcast(rwlock->readercv, rwlock->rwsleeplock);
+	}
+	rwlock->writerin = false;
+	lock_release(rwlock->rwsleeplock);
 }

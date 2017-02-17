@@ -140,6 +140,7 @@ void stoplight_cleanup() {
 	lock_destroy(lock1);
 	lock_destroy(lock2);
 	lock_destroy(lock3);
+	lock_destroy(counterlock);
 	cv_destroy(sharedcv);
 	return;
 }
