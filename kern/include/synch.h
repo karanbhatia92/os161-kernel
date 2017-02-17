@@ -163,6 +163,8 @@ struct rwlock {
 	struct cv *writercv;
 	struct lock *rwsleeplock;
 	volatile bool writerin;
+	volatile bool rlock_acquired;
+	volatile bool wlock_acquired;	
 	volatile int writerwaiting;
 	volatile int readersin;  
         // add what you need here
