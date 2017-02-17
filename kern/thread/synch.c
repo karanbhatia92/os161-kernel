@@ -371,6 +371,8 @@ struct rwlock *rwlock_create(const char *name) {
 	rwlock->wlock_acquired = false;
 	rwlock->writerwaiting = 0;
 	rwlock->readersin = 0;
+	rwlock->readerwaiting = 0;
+	rwlock->allowedreaders = 0;
 	return rwlock;
 }
 
@@ -387,9 +389,15 @@ void rwlock_destroy(struct rwlock *rwlock) {
 void rwlock_acquire_read(struct rwlock *rwlock) {
 	//(void)rwlock;
 	lock_acquire(rwlock->rwsleeplock);
+	rwlock->readerwaiting++;
 	while(rwlock->writerin == true || rwlock->writerwaiting > 0) {
 		cv_wait(rwlock->readercv, rwlock->rwsleeplock);
+		if (rwlock->allowedreaders > 0 && rwlock->writerin == false) {
+			rwlock->allowedreaders--;
+			break;
+		}
 	}
+	rwlock->readerwaiting--;
 	rwlock->readersin++;
 	rwlock->rlock_acquired = true;
 	lock_release(rwlock->rwsleeplock);
@@ -428,11 +436,13 @@ void rwlock_release_write(struct rwlock *rwlock) {
 	//(void)rwlock;
 	KASSERT(rwlock->wlock_acquired == true);
 	lock_acquire(rwlock->rwsleeplock);
-	//if(rwlock->writerwaiting > 0) {
-		cv_signal(rwlock->writercv, rwlock->rwsleeplock);
-	//} else {
+	if(rwlock->readerwaiting > 0) {
+		rwlock->allowedreaders = rwlock->readerwaiting;
 		cv_broadcast(rwlock->readercv, rwlock->rwsleeplock);
-	//}
+	} else {
+		rwlock->allowedreaders = 0;
+		cv_signal(rwlock->writercv, rwlock->rwsleeplock);
+	}
 	rwlock->writerin = false;
 	rwlock->wlock_acquired = false;
 	lock_release(rwlock->rwsleeplock);

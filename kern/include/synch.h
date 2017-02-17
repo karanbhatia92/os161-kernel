@@ -166,7 +166,9 @@ struct rwlock {
 	volatile bool rlock_acquired;
 	volatile bool wlock_acquired;	
 	volatile int writerwaiting;
-	volatile int readersin;  
+	volatile int readersin; 
+	volatile int readerwaiting;
+	volatile int allowedreaders; 
         // add what you need here
         // (don't forget to mark things volatile as needed)
 };
