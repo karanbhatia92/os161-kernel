@@ -173,7 +173,9 @@ locktestthread(void *junk, unsigned long num)
 
 	for (i=0; i<NLOCKLOOPS; i++) {
 		kprintf_t(".");
+		KASSERT(!(lock_do_i_hold(testlock)));
 		lock_acquire(testlock);
+		KASSERT(lock_do_i_hold(testlock));
 		random_yielder(4);
 
 		testval1 = num;
@@ -184,38 +186,46 @@ locktestthread(void *junk, unsigned long num)
 			goto fail;
 		}
 		random_yielder(4);
+		KASSERT(lock_do_i_hold(testlock));
 
 		if (testval2%3 != (testval3*testval3)%3) {
 			goto fail;
 		}
 		random_yielder(4);
+		KASSERT(lock_do_i_hold(testlock));
 
 		if (testval3 != testval1%3) {
 			goto fail;
 		}
 		random_yielder(4);
+		KASSERT(lock_do_i_hold(testlock));
 
 		if (testval1 != num) {
 			goto fail;
 		}
 		random_yielder(4);
+		KASSERT(lock_do_i_hold(testlock));
 
 		if (testval2 != num*num) {
 			goto fail;
 		}
 		random_yielder(4);
+		KASSERT(lock_do_i_hold(testlock));
 
 		if (testval3 != num%3) {
 			goto fail;
 		}
 		random_yielder(4);
+		KASSERT(lock_do_i_hold(testlock));
 
 		if (!(lock_do_i_hold(testlock))) {
 			goto fail;
 		}
 		random_yielder(4);
+		KASSERT(lock_do_i_hold(testlock));
 
 		lock_release(testlock);
+		KASSERT(!(lock_do_i_hold(testlock)));
 	}
 
 	/* Check for solutions that don't track ownership properly */
@@ -237,7 +247,6 @@ fail2:
 	V(donesem);
 	return;
 }
-
 
 int
 locktest(int nargs, char **args)
@@ -289,6 +298,13 @@ locktest(int nargs, char **args)
 	return 0;
 }
 
+/*
+ * Note that the following tests that panic on success do minimal cleanup
+ * afterward. This is to avoid causing a panic that could be unintentiontally
+ * considered a success signal by test161. As a result, they leak memory,
+ * don't destroy synchronization primitives, etc.
+ */
+
 int
 locktest2(int nargs, char **args) {
 	(void)nargs;
@@ -309,9 +325,9 @@ locktest2(int nargs, char **args) {
 
 	success(TEST161_FAIL, SECRET, "lt2");
 
-	lock_destroy(testlock);
-	testlock = NULL;
+	/* Don't do anything that could panic. */
 
+	testlock = NULL;
 	return 0;
 }
 
@@ -336,9 +352,112 @@ locktest3(int nargs, char **args) {
 
 	success(TEST161_FAIL, SECRET, "lt3");
 
-	testlock = NULL;
+	/* Don't do anything that could panic. */
 
+	testlock = NULL;
 	return 0;
+}
+
+/*
+ * Used by both lt4 and lt5 below. Simply acquires a lock in a separate
+ * thread. Uses a semaphore as a barrier to make sure it gets the lock before
+ * the driver completes.
+ */
+
+static
+void
+locktestacquirer(void * junk, unsigned long num)
+{
+  (void)junk;
+	(void)num;
+
+  lock_acquire(testlock);
+  V(donesem);
+
+	return;
+}
+
+
+int
+locktest4(int nargs, char **args) {
+  (void) nargs;
+  (void) args;
+
+	int result;
+
+  kprintf_n("Starting lt4...\n");
+  kprintf_n("(This test panics on success!)\n");
+
+  testlock = lock_create("testlock");
+  if (testlock == NULL) {
+	 panic("lt4: lock_create failed\n");
+  }
+
+  donesem = sem_create("donesem", 0);
+  if (donesem == NULL) {
+	 lock_destroy(testlock);
+	 panic("lt4: sem_create failed\n");
+  }
+
+	result = thread_fork("lt4", NULL, locktestacquirer, NULL, 0);
+	if (result) {
+		panic("lt4: thread_fork failed: %s\n", strerror(result));
+	}
+
+	P(donesem);
+	secprintf(SECRET, "Should panic...", "lt4");
+	lock_release(testlock);
+
+  /* Should not get here on success. */
+
+  success(TEST161_FAIL, SECRET, "lt4");
+
+	/* Don't do anything that could panic. */
+
+	testlock = NULL;
+  donesem = NULL;
+  return 0;
+}
+
+int
+locktest5(int nargs, char **args) {
+  (void) nargs;
+  (void) args;
+
+	int result;
+
+  kprintf_n("Starting lt5...\n");
+  kprintf_n("(This test panics on success!)\n");
+
+  testlock = lock_create("testlock");
+  if (testlock == NULL) {
+	 panic("lt5: lock_create failed\n");
+  }
+
+  donesem = sem_create("donesem", 0);
+  if (donesem == NULL) {
+	 lock_destroy(testlock);
+	 panic("lt5: sem_create failed\n");
+  }
+
+	result = thread_fork("lt5", NULL, locktestacquirer, NULL, 0);
+	if (result) {
+		panic("lt5: thread_fork failed: %s\n", strerror(result));
+	}
+
+	P(donesem);
+	secprintf(SECRET, "Should panic...", "lt5");
+	KASSERT(lock_do_i_hold(testlock));
+
+  /* Should not get here on success. */
+
+  success(TEST161_FAIL, SECRET, "lt5");
+
+	/* Don't do anything that could panic. */
+
+	testlock = NULL;
+  donesem = NULL;
+  return 0;
 }
 
 static
