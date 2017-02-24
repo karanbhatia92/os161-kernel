@@ -48,7 +48,7 @@
 #include <current.h>
 #include <addrspace.h>
 #include <vnode.h>
-
+#include <vfs.h>
 /*
  * The process for the kernel; this holds all the kernel-only threads.
  */
@@ -81,6 +81,10 @@ proc_create(const char *name)
 
 	/* VFS fields */
 	proc->p_cwd = NULL;
+
+	proc->file_handle_array[0] = kmalloc(sizeof(struct file_handle));
+	proc->file_handle_array[1] = kmalloc(sizeof(struct file_handle));
+	proc->file_handle_array[2] = kmalloc(sizeof(struct file_handle));
 
 	return proc;
 }
@@ -205,7 +209,41 @@ proc_create_runprogram(const char *name)
 	newproc->p_addrspace = NULL;
 
 	/* VFS fields */
+	int err0 = -1;
+	int err1 = -1;
+	int err2 = -1;
+	char con0[] = "con:";
+	char con1[] = "con:";
+	char con2[] = "con:";
+	struct file_handle *fhandle0;
+	struct file_handle *fhandle1;
+	struct file_handle *fhandle2;
+	fhandle0 = kmalloc(sizeof(*fhandle0));
+	fhandle1 = kmalloc(sizeof(*fhandle1));
+	fhandle2 = kmalloc(sizeof(*fhandle2));
+	fhandle0->offset = 0;
+	fhandle1->offset = 0;
+	fhandle2->offset = 0;
+	err0 = vfs_open(con0, 0, 0, &fhandle0->vn_file);
+	kprintf("err0: %d \n", err0);
+	if(err0 != 0) {
+		kprintf("Could not open con: for read \n");
+	}
+	newproc->file_handle_array[0]->vn_file = fhandle0->vn_file;
 
+	err1 = vfs_open(con1, 0, 1, &fhandle1->vn_file);
+	kprintf("err1: %d \n", err1);
+	if(err1 != 0) {
+		kprintf("Could not open con: for write \n");
+	}
+	newproc->file_handle_array[1]->vn_file = fhandle1->vn_file;
+	
+	err2 = vfs_open(con2, 0, 1, &fhandle2->vn_file);
+	kprintf("err2: %d \n", err2);
+	if(err2 != 0) {
+		kprintf("Could not open con: for error \n");
+	}
+	newproc->file_handle_array[2]->vn_file = fhandle2->vn_file;
 	/*
 	 * Lock the current process to copy its current directory.
 	 * (We don't need to lock the new process, though, as we have

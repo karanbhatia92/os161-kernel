@@ -71,6 +71,7 @@ struct proc {
 	struct vnode *p_cwd;		/* current working directory */
 
 	/* add more material here as needed */
+	struct file_handle *file_handle_array[3];	
 };
 
 /* This is the process structure for the kernel and for kernel-only threads. */
@@ -97,5 +98,9 @@ struct addrspace *proc_getas(void);
 /* Change the address space of the current process, and return the old one. */
 struct addrspace *proc_setas(struct addrspace *);
 
+struct file_handle {
+	struct vnode *vn_file;
+	off_t offset;
+};
 
 #endif /* _PROC_H_ */

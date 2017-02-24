@@ -35,6 +35,12 @@
 #include <thread.h>
 #include <current.h>
 #include <syscall.h>
+//for assignment 2.1
+#include <proc.h>
+#include <uio.h>
+#include <vnode.h>
+#include <copyinout.h>
+
 
 
 /*
@@ -81,6 +87,7 @@ syscall(struct trapframe *tf)
 	int callno;
 	int32_t retval;
 	int err;
+//	int32_t *ret = NULL;
 
 	KASSERT(curthread != NULL);
 	KASSERT(curthread->t_curspl == 0);
@@ -110,6 +117,10 @@ syscall(struct trapframe *tf)
 		break;
 
 	    /* Add stuff here */
+	    case SYS_write:
+		err = sys_write((int)tf->tf_a0, (void *)tf->tf_a1, (size_t)tf->tf_a2, &retval);
+	//	retval = *ret;
+		break;
 
 	    default:
 		kprintf("Unknown syscall %d\n", callno);
@@ -158,4 +169,36 @@ void
 enter_forked_process(struct trapframe *tf)
 {
 	(void)tf;
+}
+
+int32_t sys_write(int fd, const void *buff, size_t bufflen, int32_t *retval) {
+	
+	if(fd != 1){
+	//	kprintf("Invalid File \n");
+	//	return -1;
+	}	
+	char *buffer = NULL;
+	buffer = kmalloc(sizeof(*buff)*bufflen);
+	int copyinside = copyin((const_userptr_t)buff, buffer, bufflen);
+
+	if(copyinside){
+	//	kprintf("Copy Inside Failed : %d\n", copyinside);
+		return copyinside;
+	}
+
+	struct iovec iov;
+	struct uio kuio;
+	
+	uio_kinit(&iov, &kuio, buffer, bufflen, curproc->file_handle_array[1]->offset, UIO_WRITE);
+
+	int vopwriterr = VOP_WRITE(curproc->file_handle_array[1]->vn_file, &kuio);
+	if (vopwriterr){
+	//	kprintf("Vop Write Failed \n");
+		return vopwriterr;
+	}
+
+	off_t bytes = kuio.uio_offset - curproc->file_handle_array[1]->offset;
+	*retval = (int32_t)bytes;
+	curproc->file_handle_array[1]->offset = kuio.uio_offset;
+	return 0;		
 }
