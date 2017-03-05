@@ -387,6 +387,7 @@ file      vfs/devnull.c
 file      syscall/loadelf.c
 file      syscall/runprogram.c
 file      syscall/time_syscalls.c
+file	  syscall/file_syscall.c
 
 #
 # Startup and initialization
