@@ -222,3 +222,47 @@ int sys_lseek(int fd, int32_t pos1, int32_t pos2, uint32_t sp16, uint32_t *ret1,
 	return 0;
 }
 
+int sys_dup2(int oldfd, int newfd, int *retval) {
+	struct file_handle *temp = NULL;
+	bool newfdflag = false;
+	if(oldfd < 0 || oldfd > OPEN_MAX || newfd < 0 || newfd > OPEN_MAX || curproc->file_table[oldfd] == NULL) {
+		return EBADF;		
+	}
+	if(oldfd == newfd){
+		*retval = newfd;
+		return 0;
+	}
+	if(curproc->file_table[newfd] != NULL){
+		temp = curproc->file_table[newfd];
+		newfdflag = true;
+	}
+	
+	lock_acquire(curproc->file_table[oldfd]->lock);
+	if(curproc->file_table[oldfd]->destroy_count == 0) {
+		lock_release(curproc->file_table[oldfd]->lock);
+		return EBADF;
+	}
+	curproc->file_table[newfd] = curproc->file_table[oldfd];
+	KASSERT(curproc->file_table[oldfd]->destroy_count > 0);
+	curproc->file_table[oldfd]->destroy_count++;
+	lock_release(curproc->file_table[oldfd]->lock);
+
+	if(newfdflag) {
+		lock_acquire(temp->lock);	
+		KASSERT(temp->destroy_count > 0);
+		temp->destroy_count--;
+		if(temp->destroy_count > 0) {
+			lock_release(temp->lock);
+			temp = NULL;
+		} else {
+			lock_release(temp->lock);
+			KASSERT(temp->destroy_count == 0);
+			lock_destroy(temp->lock);
+        	        vfs_close(temp->vnode);
+        	        kfree(temp);
+			temp = NULL;
+		}
+	}
+	*retval = newfd;
+	return 0;
+}
