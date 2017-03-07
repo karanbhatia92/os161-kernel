@@ -11,10 +11,12 @@
 #include <file_syscall.h>
 #include <limits.h>
 #include <kern/unistd.h>
+#include <endian.h>
+#include <stat.h>
 
 int sys_open(const char *filename, int flags, int *retval) {
 	int i = 3;
-	int err = -1;
+	int err = 0;
 	int mode;
 	size_t len = PATH_MAX;
 	size_t got;
@@ -39,7 +41,18 @@ int sys_open(const char *filename, int flags, int *retval) {
 		kfree(curproc->file_table[i]);
 		return err;
 	}
-	curproc->file_table[i]->offset = 0;
+	if(flags & O_APPEND){
+		struct stat statbuf;
+		err = VOP_STAT(curproc->file_table[i]->vnode, &statbuf);
+		if (err){
+			kfree(cin_filename);
+			kfree(curproc->file_table[i]);
+			return err;
+		}
+		curproc->file_table[i]->offset = statbuf.st_size;
+	} else {
+		curproc->file_table[i]->offset = 0;
+	}
 	curproc->file_table[i]->destroy_count = 1;
 	mode = flags & O_ACCMODE;
 	switch(mode){
@@ -51,6 +64,7 @@ int sys_open(const char *filename, int flags, int *retval) {
 			break;
 		case O_RDWR:
 			curproc->file_table[i]->mode_open = O_RDWR;
+			break;
 		default:
 			kfree(cin_filename);
 			vfs_close(curproc->file_table[i]->vnode);
@@ -71,7 +85,7 @@ int sys_open(const char *filename, int flags, int *retval) {
 int sys_read(int fd, void *buf, size_t bufflen, int32_t *retval){
 
 	if(fd < 0 || fd > OPEN_MAX || curproc->file_table[fd] == NULL
-		|| curproc->file_table[fd]->mode_open != O_RDONLY) {
+		|| curproc->file_table[fd]->mode_open == O_WRONLY) {
 		return EBADF;		
 	}
 	char *buffer = (char *)kmalloc(sizeof(*buf)*bufflen);
@@ -134,8 +148,6 @@ int sys_close(int fd) {
 	if(fd < 0 || fd > OPEN_MAX || curproc->file_table[fd] == NULL) {
 		return EBADF;
 	}
-	
-	
 	lock_acquire(curproc->file_table[fd]->lock);
 	KASSERT(curproc->file_table[fd]->destroy_count > 0);
 	curproc->file_table[fd]->destroy_count--;
@@ -154,3 +166,59 @@ int sys_close(int fd) {
 	
 	return 0;
 }
+
+int sys_lseek(int fd, int32_t pos1, int32_t pos2, uint32_t sp16, uint32_t *ret1, uint32_t *ret2) {
+	
+	int whence;
+	off_t offset_64;
+	int err = 0;
+	struct stat statbuf;
+
+	if(fd < 3 || fd > OPEN_MAX || curproc->file_table[fd] == NULL) {
+		return EBADF;		
+	}
+
+	err = copyin((const_userptr_t)sp16, &whence, sizeof(int));
+	if(err){
+		return err;
+	}
+
+	if(whence < 0 || whence > 2) {
+		return EINVAL;
+	}
+
+	bool sign = ((pos1) & (1<<(31)));
+	join32to64((uint32_t)pos1, (uint32_t)pos2, (uint64_t *)&offset_64);
+	offset_64 = ((offset_64) | ((off_t)sign<<(63)));
+	lock_acquire(curproc->file_table[fd]->lock);
+	switch (whence) {
+		case 0:
+			if(offset_64 < 0){
+				lock_release(curproc->file_table[fd]->lock);
+				return EINVAL;
+			}
+			curproc->file_table[fd]->offset = offset_64;
+			break;
+		case 1:
+			curproc->file_table[fd]->offset += offset_64;
+			break;
+
+		case 2:
+			err = VOP_STAT(curproc->file_table[fd]->vnode, &statbuf);
+			if (err){
+				lock_release(curproc->file_table[fd]->lock);
+				return err;
+			}
+			curproc->file_table[fd]->offset = statbuf.st_size + offset_64;
+			break;
+
+		default:
+			lock_release(curproc->file_table[fd]->lock);
+			return EINVAL;
+			
+	}
+	split64to32((uint64_t)curproc->file_table[fd]->offset, ret1, ret2);
+	lock_release(curproc->file_table[fd]->lock);
+	return 0;
+}
+

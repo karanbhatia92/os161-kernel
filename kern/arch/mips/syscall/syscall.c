@@ -80,7 +80,11 @@ syscall(struct trapframe *tf)
 {
 	int callno;
 	int32_t retval;
+	uint32_t ret1;
+	uint32_t ret2;
 	int err;
+	bool lseek_flag = false;
+	//off_t lseek_return_value;
 
 	KASSERT(curthread != NULL);
 	KASSERT(curthread->t_curspl == 0);
@@ -126,6 +130,10 @@ syscall(struct trapframe *tf)
 		err = sys_close((int)tf->tf_a0);
 		break;
 
+	    case SYS_lseek:
+		lseek_flag = true;
+		err = sys_lseek((int)tf->tf_a0, (int32_t)tf->tf_a2, (int32_t)tf->tf_a3, tf->tf_sp+16, &ret1, &ret2);	
+		break;
 	    default:
 		kprintf("Unknown syscall %d\n", callno);
 		err = ENOSYS;
@@ -142,10 +150,15 @@ syscall(struct trapframe *tf)
 		tf->tf_v0 = err;
 		tf->tf_a3 = 1;      /* signal an error */
 	}
-	else {
+	else if (!lseek_flag) {
 		/* Success. */
 		tf->tf_v0 = retval;
 		tf->tf_a3 = 0;      /* signal no error */
+	}
+	else {
+		tf->tf_v0 = ret1;
+		tf->tf_v1 = ret2;
+		tf->tf_a3 = 0;
 	}
 
 	/*
