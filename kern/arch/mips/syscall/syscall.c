@@ -36,7 +36,8 @@
 #include <current.h>
 #include <syscall.h>
 #include <file_syscall.h>
-
+#include <proc_syscall.h>
+#include <addrspace.h>
 /*
  * System call dispatcher.
  *
@@ -84,7 +85,6 @@ syscall(struct trapframe *tf)
 	uint32_t ret2;
 	int err;
 	bool lseek_flag = false;
-	//off_t lseek_return_value;
 
 	KASSERT(curthread != NULL);
 	KASSERT(curthread->t_curspl == 0);
@@ -139,6 +139,19 @@ syscall(struct trapframe *tf)
 		err = sys_dup2((int)tf->tf_a0, (int)tf->tf_a1, &retval);
 		break;
 
+	    case SYS_fork:
+		err = sys_fork((pid_t *)&retval, tf);
+		break;
+
+	    case SYS_getpid:
+		err = sys_getpid((pid_t *)&retval);
+		break;
+
+	    case SYS__exit:
+		thread_exit();
+		err = 0;
+		break;
+
 	    default:
 		kprintf("Unknown syscall %d\n", callno);
 		err = ENOSYS;
@@ -188,7 +201,13 @@ syscall(struct trapframe *tf)
  * Thus, you can trash it and do things another way if you prefer.
  */
 void
-enter_forked_process(struct trapframe *tf)
+enter_forked_process(void *void_tf, unsigned long num)
 {
-	(void)tf;
+	(void)num;
+        struct trapframe tf_child = *(struct trapframe *)void_tf;
+        tf_child.tf_v0 = 0;
+        tf_child.tf_a3 = 0;
+        tf_child.tf_epc += 4;
+	//curproc->p_addrspace = (struct addrspace *)child_addrspace;
+	mips_usermode(&tf_child);
 }

@@ -41,7 +41,7 @@
 //To include file handle
 #include <file_syscall.h>
 #include <limits.h> 
-
+#include <thread.h>
 struct addrspace;
 struct thread;
 struct vnode;
@@ -76,6 +76,11 @@ struct proc {
 
 	/* add more material here as needed */
 	struct file_handle *file_table[OPEN_MAX];
+	pid_t proc_id;
+	pid_t parent_id;
+	bool exit_status;
+	int exit_code;
+	struct thread *t_thread;
 };
 
 /* This is the process structure for the kernel and for kernel-only threads. */

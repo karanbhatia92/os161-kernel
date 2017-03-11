@@ -54,6 +54,8 @@
 #include <kern/fcntl.h>
 #include <vfs.h>
 
+/* Include for Process Syscalls */
+#include <proc_syscall.h>
 
 /*
  * The process for the kernel; this holds all the kernel-only threads.
@@ -92,6 +94,13 @@ proc_create(const char *name)
 	for (int i = 0; i < OPEN_MAX; i++)
 		proc->file_table[i] = NULL;
 
+	/* Process call related changes start here */
+	proc->proc_id = -1;
+	proc->parent_id = -1;
+	proc->exit_status = false;
+	proc->exit_code = -1;	
+	/* Process Call related changes end here  */	
+
 	return proc;
 }
 
@@ -106,7 +115,7 @@ proc_destroy(struct proc *proc)
 {
 	/*
 	 * You probably want to destroy and null out much of the
-	 * process (particularly the address space) at exit time if
+`	 * process (particularly the address space) at exit time if
 	 * your wait/exit design calls for the process structure to
 	 * hang around beyond process exit. Some wait/exit designs
 	 * do, some don't.
@@ -215,6 +224,29 @@ proc_create_runprogram(const char *name)
 	newproc->p_addrspace = NULL;
 
 	/* VFS fields */
+	newproc->proc_id = 2;
+	newproc->parent_id = 0;
+	//newproc->t_thread = 
+
+	/* Process related syscall changes start here */
+	first = (struct proc_node *)kmalloc(sizeof(struct proc_node));
+	if(first == NULL){
+		kfree(newproc);
+		return NULL;
+	}
+	first->proc = newproc;
+	first->next = NULL;
+
+	last = (struct proc_node *)kmalloc(sizeof(struct proc_node));
+	if(last == NULL){
+		kfree(newproc);
+		kfree(first);
+		return NULL;
+	}
+	last->proc = newproc;
+	last->next = NULL;
+	proc_counter = 1;
+	/* Process related syscall changes end here */
 
 	/* Console Initialization for STDIN*/
 	int err = -1;
