@@ -1,61 +1,37 @@
-#include<proc_syscall.h>
-#include<proc.h>
-#include<addrspace.h>
-#include<syscall.h>
-#include<kern/errno.h>
-#include<synch.h>
-#include<current.h>
-#include<thread.h>
-
-static struct proc * process_create(const char *name) {
-	struct proc *proc;
-
-        proc = kmalloc(sizeof(*proc));
-        if (proc == NULL) {
-                return NULL;
-        }
-        proc->p_name = kstrdup(name);
-        if (proc->p_name == NULL) {
-                kfree(proc);
-                return NULL;
-        }
-
-        proc->p_numthreads = 0;
-        spinlock_init(&proc->p_lock);
-
-        /* VM fields */
-        proc->p_addrspace = NULL;
-
-        /* VFS fields */
-        proc->p_cwd = NULL;
-
-        /* Setting file table to NULL*/
-        for (int i = 0; i < OPEN_MAX; i++)
-                proc->file_table[i] = NULL;
-
-        /* Process call related changes start here */
-        proc->proc_id = -1;
-        proc->parent_id = -1;
-        proc->exit_status = false;
-        proc->exit_code = -1;
-        /* Process Call related changes end here  */
-
-        return proc;
-}
-
+#include <proc_syscall.h>
+#include <proc.h>
+#include <addrspace.h>
+#include <syscall.h>
+#include <kern/errno.h>
+#include <synch.h>
+#include <current.h>
+#include <thread.h>
+#include <copyinout.h>
+#include <kern/wait.h>
 int sys_fork(pid_t *child_pid, struct trapframe *tf) {
 
+	int i = 0;
+	int j = 0;	
 	struct trapframe *tf_child;
+
 	if(proc_counter >= PID_MAX){
 		return ENPROC;
 	}
-	int i = 0;
-	
+
+
 	/* Process Initialization */
 	struct proc *childproc = process_create("child_process");
 	if (childproc == NULL) {
 		return -1;
 	}
+
+	while(proc_table[j] != NULL){
+		if(j == OPEN_MAX - 1){
+			return ENPROC;
+		}
+		j++;
+	}	
+	proc_table[j] = childproc;
 
 	int err = as_copy(curproc->p_addrspace, &childproc->p_addrspace);
 	if(err) {
@@ -79,18 +55,129 @@ int sys_fork(pid_t *child_pid, struct trapframe *tf) {
 	tf_child->tf_a3 = 0;
 	tf_child->tf_epc += 4;
 */
-//	tf_child = (struct trapframe *)kmalloc(sizeof(struct trapframe));
-	tf_child = tf;
+	kprintf("PID %d forking child with PID : %d \n", childproc->parent_id, childproc->proc_id);
+	tf_child = (struct trapframe *)kmalloc(sizeof(struct trapframe));
+	*tf_child = *tf;
+	kprintf("PID %d stored in proc table at %d \n", childproc->proc_id, j);
 	err = thread_fork("child_thread", childproc, enter_forked_process, (struct trapframe *)tf_child, (unsigned long)NULL);
 	if (err) {
 		return err;
 	}
-	last->next = (struct proc_node *)kmalloc(sizeof(struct proc_node));
-	last = last->next;
-	last->proc = childproc;
-	last->next = NULL;
+//	kprintf("At %d, proc id is %d \n", j, proc_table[j]->proc_id);
 	*child_pid = childproc->proc_id;
 	return 0;	
+}
+
+int sys_waitpid(pid_t pid, int *status, int options, pid_t* retval) {
+
+	int i = 0;
+	int err = 0;
+	if(options != 0){
+		return EINVAL;
+	}
+	
+	for(i = 0; i < OPEN_MAX; i++){
+		if(proc_table[i] != NULL){
+			if(proc_table[i]->proc_id == pid)
+			break;
+		}
+		if(i == OPEN_MAX - 1)
+		return ESRCH;
+	}
+	proc_table[i]->parent_waiting = true;
+/*
+	while(proc_table[i]->proc_id != pid){
+		if(i == OPEN_MAX - 1){
+			return ESRCH;
+		}
+		i++;
+	}
+*/
+	if(proc_table[i]->proc_id != 2){
+	if(proc_table[i]->parent_id != curproc->proc_id){
+		return ECHILD;
+	}}
+	kprintf("Parent PID %d calling waitpid on PID %d \n", proc_table[i]->parent_id, proc_table[i]->proc_id);
+	KASSERT(proc_table[i] != NULL);
+	lock_acquire(proc_table[i]->lock);
+	if(proc_table[i]->exit_status){
+		err = copyout(&proc_table[i]->exit_code, (userptr_t)status, sizeof(proc_table[i]->exit_code));
+		if(err){
+			lock_release(proc_table[i]->lock);
+			proc_destroy(proc_table[i]);
+			proc_table[i] = NULL;
+			return err;
+		}
+		lock_release(proc_table[i]->lock);
+		*retval = proc_table[i]->proc_id;
+		proc_destroy(proc_table[i]);
+		proc_table[i] = NULL;
+		return 0;
+	}
+	kprintf("PID %d going to wait for PID %d \n", proc_table[i]->parent_id, proc_table[i]->proc_id);
+	cv_wait(proc_table[i]->cv, proc_table[i]->lock);
+	err = copyout(&proc_table[i]->exit_code, (userptr_t)status, sizeof(proc_table[i]->exit_code));
+	if(err){
+		lock_release(proc_table[i]->lock);
+		proc_destroy(proc_table[i]);
+		proc_table[i] = NULL;
+		return err;
+	}
+	lock_release(proc_table[i]->lock);
+	*retval = proc_table[i]->proc_id;
+	kprintf("Parent PID %d done waiting for PID : %d, now destroying it \n", proc_table[i]->parent_id, *retval);
+	proc_destroy(proc_table[i]);
+	proc_table[i] = NULL;
+	kprintf("After proc destroy parent \n");
+	return 0;
+}
+
+void sys_exit(int exitcode){
+	
+	int i = 0;
+	/*
+	if(proc_table[0]->proc_id == curproc->proc_id){
+		kprintf("Called exit for Proc %d which is at 0 : %s \n", curproc->proc_id, curproc->p_name);
+		//thread_exit();
+		return;
+	}
+	*/
+
+	for(i = 0; i < OPEN_MAX; i++){
+		if(proc_table[i] != NULL){
+			if(proc_table[i]->proc_id == curproc->proc_id)
+			break;
+		}
+		if(i == OPEN_MAX - 1)
+		panic("Current process not found in process table");
+	}
+/*
+	while(proc_table[i]->proc_id != curproc->proc_id){
+                if(i == OPEN_MAX - 1){
+                        panic("Current process not found in process table");
+                }
+                i++;
+        }
+*/
+	kprintf("Called exit for PID %d in proc table at %d : %s \n", proc_table[i]->proc_id, i, curproc->p_name);
+	lock_acquire(curproc->lock);
+	curproc->exit_status = true;
+	curproc->exit_code = _MKWAIT_EXIT(exitcode);
+	KASSERT(curproc->exit_status == proc_table[i]->exit_status);
+	KASSERT(curproc->exit_code == proc_table[i]->exit_code);
+	if(curproc->parent_waiting){
+	kprintf("PID %d Signaling Parent PID %d to wake up \n", curproc->proc_id, curproc->parent_id);
+	cv_signal(curproc->cv, curproc->lock);
+	lock_release(curproc->lock);
+	thread_exit();
+	} else {
+		kprintf("No Parent waiting for PID %d, now destroying it \n", curproc->proc_id);
+		lock_release(curproc->lock);
+		//proc_destroy(curproc);
+		//proc_table[i] = NULL;
+		kprintf("After proc destroy \n");
+		thread_exit();
+	}
 }
 
 int sys_getpid(pid_t *curproc_pid){

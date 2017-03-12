@@ -79,8 +79,11 @@ struct proc {
 	pid_t proc_id;
 	pid_t parent_id;
 	bool exit_status;
+	bool parent_waiting;
 	int exit_code;
-	struct thread *t_thread;
+	struct lock *lock;
+	struct cv *cv; 
+//	struct thread *t_thread;
 };
 
 /* This is the process structure for the kernel and for kernel-only threads. */
@@ -107,4 +110,5 @@ struct addrspace *proc_getas(void);
 /* Change the address space of the current process, and return the old one. */
 struct addrspace *proc_setas(struct addrspace *);
 
+struct proc *process_create(const char *name);
 #endif /* _PROC_H_ */

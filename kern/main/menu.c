@@ -48,7 +48,7 @@
 #include "opt-net.h"
 #include "opt-synchprobs.h"
 #include "opt-automationtest.h"
-
+#include <proc_syscall.h>
 /*
  * In-kernel menu and command dispatcher.
  */
@@ -139,6 +139,13 @@ common_prog(int nargs, char **args)
 		return result;
 	}
 
+	int a = 0;
+	int p = 0;
+	int err = sys_waitpid(2, &a, 0, &p);
+	if(err){
+		kprintf("Got err %d \n", err);
+	}
+	kprintf("sssssssssssssssssssssssssssssssssssssss done waiting on pid value : %d \n", p);
 	/*
 	 * The new process will be destroyed when the program exits...
 	 * once you write the code for handling that.

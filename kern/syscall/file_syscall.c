@@ -27,11 +27,11 @@ int sys_open(const char *filename, int flags, int *retval) {
 		return copyinside;
 	}
 	while(curproc->file_table[i] != NULL){
-		i++;
 		if(i == OPEN_MAX-1){
 			kfree(cin_filename);
 			return EMFILE;	
 		}
+		i++;
 	}
 	curproc->file_table[i] = (struct file_handle *)kmalloc(sizeof(struct file_handle));
 	KASSERT(curproc->file_table[i] != NULL);

@@ -98,7 +98,12 @@ proc_create(const char *name)
 	proc->proc_id = -1;
 	proc->parent_id = -1;
 	proc->exit_status = false;
+	proc->parent_waiting = false;
 	proc->exit_code = -1;	
+	proc->lock = lock_create("Proc_lock");
+	KASSERT(proc->lock != NULL);
+	proc->cv = cv_create("Proc_cv");
+	KASSERT(proc->cv != NULL);
 	/* Process Call related changes end here  */	
 
 	return proc;
@@ -184,9 +189,20 @@ proc_destroy(struct proc *proc)
 		as_destroy(as);
 	}
 
-	KASSERT(proc->p_numthreads == 0);
+	/* Destorying proc fields - start  */
+	for(int i = 0; i < OPEN_MAX; i++) {
+                if(proc->file_table[i] != NULL){
+                        lock_acquire(proc->file_table[i]->lock);
+                        proc->file_table[i]->destroy_count--;
+                        lock_release(proc->file_table[i]->lock);
+                }
+        }
+	lock_destroy(proc->lock);
+	cv_destroy(proc->cv);	
+	/*Destroying proc fields - end */
+	
+	//KASSERT(proc->p_numthreads == 0);
 	spinlock_cleanup(&proc->p_lock);
-
 	kfree(proc->p_name);
 	kfree(proc);
 }
@@ -226,26 +242,13 @@ proc_create_runprogram(const char *name)
 	/* VFS fields */
 	newproc->proc_id = 2;
 	newproc->parent_id = 0;
-	//newproc->t_thread = 
 
-	/* Process related syscall changes start here */
-	first = (struct proc_node *)kmalloc(sizeof(struct proc_node));
-	if(first == NULL){
-		kfree(newproc);
-		return NULL;
-	}
-	first->proc = newproc;
-	first->next = NULL;
-
-	last = (struct proc_node *)kmalloc(sizeof(struct proc_node));
-	if(last == NULL){
-		kfree(newproc);
-		kfree(first);
-		return NULL;
-	}
-	last->proc = newproc;
-	last->next = NULL;
-	proc_counter = 1;
+	/* Process related syscall changes start here */	
+	/* Setting proc table to NULL*/
+	for (int i = 0; i < OPEN_MAX; i++)
+		proc_table[i] = NULL;
+	proc_table[0] = newproc;
+	proc_counter = 2;
 	/* Process related syscall changes end here */
 
 	/* Console Initialization for STDIN*/
@@ -500,4 +503,8 @@ proc_setas(struct addrspace *newas)
 	proc->p_addrspace = newas;
 	spinlock_release(&proc->p_lock);
 	return oldas;
+}
+
+struct proc * process_create(const char *name) {
+	return proc_create(name);
 }

@@ -188,7 +188,6 @@ test(int nowait)
 		// 0, 1, 2 are stdin, stdout, stderr
 		err(1, "Failed to open file to write data into\n");
 	}
-
 	pid0 = dofork();
 	nprintf(".");
 	write(fd, "A", 1);
@@ -197,7 +196,6 @@ test(int nowait)
 		warnx("depth %d, should be 1", depth);
 	}
 	check();
-
 	pid1 = dofork();
 	nprintf(".");
 	write(fd, "B", 1);
@@ -206,7 +204,6 @@ test(int nowait)
 		warnx("depth %d, should be 2", depth);
 	}
 	check();
-
 	pid2 = dofork();
 	nprintf(".");
 	write(fd, "C", 1);
@@ -215,7 +212,6 @@ test(int nowait)
 		warnx("depth %d, should be 3", depth);
 	}
 	check();
-
 	pid3 = dofork();
 	nprintf(".");
 	write(fd, "D", 1);
@@ -299,7 +295,6 @@ main(int argc, char *argv[])
 	}
 	warnx("Starting. Expect this many:");
 	write(STDERR_FILENO, expected, strlen(expected));
-
 	test(nowait);
 
 	warnx("Complete.");

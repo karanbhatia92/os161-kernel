@@ -50,9 +50,12 @@ int main()//int argc, char *argv[])
 {
 	int pid = fork();
 	if(pid > 0){
-		tprintf("parent");
+		int status = 0;
+		pid_t ret = waitpid(pid, &status, 0);
+		tprintf("parent pid : %d", ret);
 	} else if(pid == 0) {
 		tprintf("child");
+		_exit(0);
 	} else {
 		tprintf("Not parant, not child");
 	}

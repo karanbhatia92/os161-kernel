@@ -147,8 +147,12 @@ syscall(struct trapframe *tf)
 		err = sys_getpid((pid_t *)&retval);
 		break;
 
+	    case SYS_waitpid:
+		err = sys_waitpid((pid_t)tf->tf_a0, (int *)tf->tf_a1, (int)tf->tf_a2,(pid_t *)&retval);
+		break;
+
 	    case SYS__exit:
-		thread_exit();
+		sys_exit((int)tf->tf_a0);
 		err = 0;
 		break;
 
@@ -205,6 +209,7 @@ enter_forked_process(void *void_tf, unsigned long num)
 {
 	(void)num;
         struct trapframe tf_child = *(struct trapframe *)void_tf;
+	kfree((struct trapframe *)void_tf);
         tf_child.tf_v0 = 0;
         tf_child.tf_a3 = 0;
         tf_child.tf_epc += 4;
