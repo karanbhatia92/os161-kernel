@@ -184,3 +184,8 @@ int sys_getpid(pid_t *curproc_pid){
 	*curproc_pid = curproc->proc_id;
 	return 0;
 }
+
+int sys_execv(const char *program){
+	(void)program;
+	return 0;
+}
