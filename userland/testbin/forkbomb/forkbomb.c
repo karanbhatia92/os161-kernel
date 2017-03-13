@@ -89,6 +89,7 @@ main(void)
 			iters++;
 
 			__time(&time_now_s, &time_now_ns);
+			//tprintf("Time difference : %llu", time_now_s - start_time_s);
 			if (time_now_s - start_time_s > TEST_DURATION && !did_print) {
 				did_print = 1;
 				// We need to print this using secprintf so that it uses

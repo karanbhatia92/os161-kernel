@@ -48,6 +48,18 @@
 //static const char *MAGIC = "h4xa0rRq0Vgbc96tiYJ^!#nXzZSAKPO";
 int main()//int argc, char *argv[])
 {
+	const char *args[6];
+	args[0] = "Pratik";
+	args[1] = "Bhindi";
+	args[2] = "Kha";
+	args[3] = "Raha";
+	args[4] = "Hai";
+	args[5] = NULL;
+	int err = execv("/testbin/opentest", (char **)args);
+	tprintf("Should not reach here, err : %d \n", err);
+}
+/* Fork Test
+{
 	int pid = fork();
 	if(pid > 0){
 		int status = 0;
@@ -61,3 +73,4 @@ int main()//int argc, char *argv[])
 	}
 	return 0;
 }
+Fork Test end */
