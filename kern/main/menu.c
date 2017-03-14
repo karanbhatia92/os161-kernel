@@ -138,7 +138,7 @@ common_prog(int nargs, char **args)
 		proc_destroy(proc);
 		return result;
 	}
-/*
+
 	int a = 0;
 	int p = 0;
 	int err = sys_waitpid(2, &a, 0, &p);
@@ -146,7 +146,7 @@ common_prog(int nargs, char **args)
 		kprintf("Got err %d \n", err);
 	}
 	kprintf("sssssssssssssssssssssssssssssssssssssss done waiting on pid value : %d \n", p);
-*/
+
 	/*
 	 * The new process will be destroyed when the program exits...
 	 * once you write the code for handling that.

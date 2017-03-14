@@ -57,6 +57,7 @@ docat(const char *name, int fd)
 		 * Likewise, we may actually write less than we attempted
 		 * to. So loop until we're done.
 		 */
+		
 		wrtot = 0;
 		while (wrtot < len) {
 			wr = write(STDOUT_FILENO, buf+wrtot, len-wrtot);

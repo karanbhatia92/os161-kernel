@@ -96,16 +96,20 @@ int sys_read(int fd, void *buf, size_t bufflen, int32_t *retval){
 
 	int err = VOP_READ(curproc->file_table[fd]->vnode, &kuio);
 	if (err){
+		lock_release(curproc->file_table[fd]->lock);
 		kfree(buffer);
 		return err;
 	}
 	off_t bytes = kuio.uio_offset - curproc->file_table[fd]->offset;
 	*retval = (int32_t)bytes;
 	curproc->file_table[fd]->offset = kuio.uio_offset;
-	err = copyout(buffer, (userptr_t)buf, *retval);
-	if(err) {
-		kfree(buffer);
-		return err;
+	if(bytes != 0){
+		err = copyout(buffer, (userptr_t)buf, *retval);
+		if(err) {
+			lock_release(curproc->file_table[fd]->lock);
+			kfree(buffer);
+			return err;
+		}
 	}
 	lock_release(curproc->file_table[fd]->lock);
 	kfree(buffer);

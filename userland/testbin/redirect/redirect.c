@@ -166,7 +166,6 @@ cat(void)
 	/* parent */
 	doclose(rfd, INFILE);
 	doclose(wfd, OUTFILE);
-
 	result = waitpid(pid, &status, 0);
 	if (result == -1) {
 		err(1, "waitpid");
