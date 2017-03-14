@@ -70,7 +70,13 @@ int sys_fork(pid_t *child_pid, struct trapframe *tf) {
 */
 	//kprintf("PID %d forking child with PID : %d \n", childproc->parent_id, childproc->proc_id);
 	tf_child = (struct trapframe *)kmalloc(sizeof(struct trapframe));
-	*tf_child = *tf;
+	//************ Test ***********//
+	kprintf("Address inside tf is : %p , Address inside tf_child is %p , \n", tf, tf_child);
+	if (tf == NULL || tf_child == NULL) {
+		kprintf("parent trapframe is null");
+	}
+	//****************************//
+	*tf_child = *tf; 
 	//kprintf("PID %d stored in proc table at %d \n", childproc->proc_id, j);
 	err = thread_fork("child_thread", childproc, enter_forked_process, (struct trapframe *)tf_child, (unsigned long)NULL);
 	if (err) {
