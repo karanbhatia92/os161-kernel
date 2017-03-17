@@ -4,8 +4,11 @@
 #include <proc.h>
 #include <mips/trapframe.h>
 #include <synch.h>
+#include <limits.h>
 /* Process Table that is used to map between process structures and PIDs */
 
+char arguments[ARG_MAX];
+struct lock *arg_lock;
 struct proc *proc_table[OPEN_MAX];
 int proc_counter;
 int sys_fork(pid_t *child_pid, struct trapframe *tf);
