@@ -223,88 +223,64 @@ int sys_execv(const char *program, char **args) {
 	int result;
 	int arg_length = 0;
 	//char **args_ex = NULL;	
-	//char **args_ex1 = NULL;
+	char **args_ex1 = NULL;
 	char **args_stack_ptr = NULL;
 	char *program_ex = NULL;
 	//char *program_cp = program_ex;
 	//char *program_ex1;
 	int bytes_remaining = ARG_MAX;
 	userptr_t argv_ex = NULL;
-	(void)program;
-	//arg_length = strlen(program);
-	//program_ex = kmalloc(arg_length+1);
-	lock_acquire(arg_lock);
-	//err = copyinstr((const_userptr_t)program, arguments, ARG_MAX, &got);
-	//if(err){
-		//kfree(program_ex);
-		//lock_release(arg_lock);
-		//return err;
-	//}
-	//bytes_remaining -= strlen(arguments)+1;
-	//if(bytes_remaining < 0) {
-		//lock_release(arg_lock);
-		//return E2BIG;
-	//}
-	//arg_length += strlen(arguments)+1;
+	
+	arg_length = strlen(program);
+	program_ex = kmalloc(arg_length+1);
+	err = copyinstr((const_userptr_t)program, program_ex, arg_length+1, &got);
+	if(err){
+		kfree(program_ex);
+		return err;
+	}
+	bytes_remaining -= strlen(program_ex);
 	//strcopy(&program_ex1, &program_ex, &bytes_remaining);
 
 	while(args[arg_counter] != NULL){
 		arg_counter++;
 	}
-	kprintf("print arg_counter: %d", arg_counter);
 	//args_ex = kmalloc(sizeof(char *)*arg_counter);
-	//args_ex1 = kmalloc(sizeof(char *)*arg_counter);
-	for (i = 0; i < arg_counter ; i++) {
+	args_ex1 = kmalloc(sizeof(char *)*arg_counter);
+	for (i = 0; i < arg_counter; i++) {
 		/*if(bytes_remaining == 64104){
 			kprintf("Caught ast \n");
 		}*/
-		//arg_length = strlen(args[i]);
-		//args_ex1[i] = kmalloc(arg_length+1);	
-		err = copyinstr((const_userptr_t)args[i], &arguments[arg_length], ARG_MAX, &got);
+		arg_length = strlen(args[i]);
+		args_ex1[i] = kmalloc(arg_length+1);	
+		err = copyinstr((const_userptr_t)args[i], args_ex1[i], arg_length+1, &got);
 		if (err) {
 			if(err == 6){
 				kprintf("Caught \n");
 			}
-			//kfree(program_ex);
+			kfree(program_ex);
 			//kfree(args_ex);
-			//kfree(args_ex1);
-			lock_release(arg_lock);
+			kfree(args_ex1);
 			return err;
 		}
 		
 		//args_ex1[i] = kmalloc((sizeof(char) * strlen(args_ex[i]))+1);
 		//strcpy(args_ex1[i], args_ex[i]);
 		//kfree(args_ex[i]);
-		bytes_remaining -= strlen(&arguments[arg_length])+1;
-		kprintf("Bytes remaining : %d", bytes_remaining);
-		if(bytes_remaining < 0) {
-			lock_release(arg_lock);
-			return E2BIG;
-		}
-		//kprintf("Arguments: %s", &arguments[arg_length]);
-		arg_length += strlen(&arguments[arg_length])+1;
+		bytes_remaining -= strlen(args_ex1[i]);
 		//strcopy(&args_ex1[i], &args_ex[i], &bytes_remaining);	
 		//kprintf("Printing bytes remaining to check %d \n", bytes_remaining);
 		//kprintf("Printing args_ex1 %d string %s and bytes remaining %d \n", i, args_ex1[i], bytes_remaining);
 	}
 	//kfree(args_ex);
-	arg_length = 0;
 	
-	program_ex = kmalloc(strlen(arguments)+1);
-	arg_length += strlen(arguments)+1;
-	strcpy(program_ex, arguments);
 	result = vfs_open(program_ex, O_RDONLY, 0, &v);
 	if (result) {
-		kfree(program_ex);
-		lock_release(arg_lock);
 		return result;
 	}
 	
 	as = as_create();
 	if (as == NULL) {
 		vfs_close(v);
-		kfree(program_ex);
-		lock_release(arg_lock);
 		return ENOMEM;
 	}
 
@@ -314,8 +290,6 @@ int sys_execv(const char *program, char **args) {
 	result = load_elf(v, &entrypoint);
 	if (result) {
 		vfs_close(v);
-		kfree(program_ex);
-		lock_release(arg_lock);
 		return result;
 	}
 	
@@ -323,14 +297,12 @@ int sys_execv(const char *program, char **args) {
 
 	result = as_define_stack(as, &stackptr);
 	if(result) {
-		kfree(program_ex);
-		lock_release(arg_lock);
 		return result;
 	}
 
 	args_stack_ptr = kmalloc(sizeof(char *)*arg_counter);
 	for(i = 0; i < arg_counter; i++) {
-		int len = strlen(&arguments[arg_length]);
+		int len = strlen(args_ex1[i]);
 		int no_null_terminator = 4 - len%4;
 		int blocks = len/4;
 		int copy_len = 0;
@@ -340,8 +312,7 @@ int sys_execv(const char *program, char **args) {
 			copy_len = len + no_null_terminator;	
 		}
 		args_stack_ptr[i] = kmalloc(copy_len);
-		strcpy(args_stack_ptr[i],&arguments[arg_length]);
-		arg_length += strlen(&arguments[arg_length])+1;
+		strcpy(args_stack_ptr[i], args_ex1[i]);
 		for (int j = 0; j < no_null_terminator; j++){
 			args_stack_ptr[i][len + j] = '\0';
 		}
@@ -363,7 +334,6 @@ int sys_execv(const char *program, char **args) {
 
 	argv_ex = (userptr_t)stackptr;
 	stackptr = stackptr - 4;
-	lock_release(arg_lock);
 	//kprintf("Arg counter %d \n", arg_counter);	
 	enter_new_process(arg_counter, argv_ex, NULL, stackptr, entrypoint);
 	return EINVAL;
