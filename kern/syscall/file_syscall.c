@@ -39,6 +39,7 @@ int sys_open(const char *filename, int flags, int *retval) {
 	if (err) {
 		kfree(cin_filename);
 		kfree(curproc->file_table[i]);
+		curproc->file_table[i] = NULL;
 		return err;
 	}
 	if(flags & O_APPEND){
@@ -47,6 +48,7 @@ int sys_open(const char *filename, int flags, int *retval) {
 		if (err){
 			kfree(cin_filename);
 			kfree(curproc->file_table[i]);
+			curproc->file_table[i] = NULL;
 			return err;
 		}
 		curproc->file_table[i]->offset = statbuf.st_size;
@@ -54,6 +56,7 @@ int sys_open(const char *filename, int flags, int *retval) {
 		curproc->file_table[i]->offset = 0;
 	}
 	curproc->file_table[i]->destroy_count = 1;
+	curproc->file_table[i]->con_file = false;
 	mode = flags & O_ACCMODE;
 	switch(mode){
 		case O_RDONLY:
@@ -69,13 +72,15 @@ int sys_open(const char *filename, int flags, int *retval) {
 			kfree(cin_filename);
 			vfs_close(curproc->file_table[i]->vnode);
 			kfree(curproc->file_table[i]);
+			curproc->file_table[i] = NULL;
 			return EINVAL;
 	}
 	curproc->file_table[i]->lock = lock_create("filehandle_lock");
 	if(curproc->file_table[i]->lock == NULL) {	
-			kfree(cin_filename);
-			vfs_close(curproc->file_table[i]->vnode);
-			kfree(curproc->file_table[i]);
+		kfree(cin_filename);
+		vfs_close(curproc->file_table[i]->vnode);
+		kfree(curproc->file_table[i]);
+		curproc->file_table[i] = NULL;
 	}
 	*retval = i;
 	kfree(cin_filename);
@@ -84,7 +89,7 @@ int sys_open(const char *filename, int flags, int *retval) {
 
 int sys_read(int fd, void *buf, size_t bufflen, int32_t *retval){
 
-	if(fd < 0 || fd > OPEN_MAX || curproc->file_table[fd] == NULL
+	if(fd < 0 || fd >= OPEN_MAX || curproc->file_table[fd] == NULL
 		|| curproc->file_table[fd]->mode_open == O_WRONLY) {
 		return EBADF;		
 	}
@@ -118,7 +123,7 @@ int sys_read(int fd, void *buf, size_t bufflen, int32_t *retval){
 
 int sys_write(int fd, const void *buff, size_t bufflen, int32_t *retval) {
 	
-	if(fd < 0 || fd > OPEN_MAX || curproc->file_table[fd] == NULL
+	if(fd < 0 || fd >= OPEN_MAX || curproc->file_table[fd] == NULL
 		|| curproc->file_table[fd]->mode_open == O_RDONLY) {
 		return EBADF;		
 	}
@@ -149,7 +154,7 @@ int sys_write(int fd, const void *buff, size_t bufflen, int32_t *retval) {
 }
 
 int sys_close(int fd) {
-	if(fd < 0 || fd > OPEN_MAX || curproc->file_table[fd] == NULL) {
+	if(fd < 0 || fd >= OPEN_MAX || curproc->file_table[fd] == NULL) {
 		return EBADF;
 	}
 	lock_acquire(curproc->file_table[fd]->lock);
@@ -178,10 +183,15 @@ int sys_lseek(int fd, int32_t pos1, int32_t pos2, uint32_t sp16, uint32_t *ret1,
 	int err = 0;
 	struct stat statbuf;
 
-	if(fd < 3 || fd > OPEN_MAX || curproc->file_table[fd] == NULL) {
+	if(fd < 0 || fd >= OPEN_MAX || curproc->file_table[fd] == NULL) {
 		return EBADF;		
 	}
-
+	if(curproc->file_table[fd]->con_file){
+		return ESPIPE;
+	}
+	if(!VOP_ISSEEKABLE(curproc->file_table[fd]->vnode)) {
+		return ESPIPE;
+	}
 	err = copyin((const_userptr_t)sp16, &whence, sizeof(int));
 	if(err){
 		return err;
@@ -229,13 +239,15 @@ int sys_lseek(int fd, int32_t pos1, int32_t pos2, uint32_t sp16, uint32_t *ret1,
 int sys_dup2(int oldfd, int newfd, int *retval) {
 	struct file_handle *temp = NULL;
 	bool newfdflag = false;
-	if(oldfd < 0 || oldfd > OPEN_MAX || newfd < 0 || newfd > OPEN_MAX || curproc->file_table[oldfd] == NULL) {
+	if(oldfd < 0 || oldfd >= OPEN_MAX || newfd < 0 || newfd >= OPEN_MAX || curproc->file_table[oldfd] == NULL) {
 		return EBADF;		
 	}
+
 	if(oldfd == newfd){
 		*retval = newfd;
 		return 0;
 	}
+
 	if(curproc->file_table[newfd] != NULL){
 		temp = curproc->file_table[newfd];
 		newfdflag = true;

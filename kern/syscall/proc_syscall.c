@@ -94,6 +94,9 @@ int sys_waitpid(pid_t pid, int *status, int options, pid_t* retval) {
 	if(options != 0){
 		return EINVAL;
 	}
+	if(curproc->proc_id == pid){
+		return ECHILD;
+	}
 	
 	for(i = 0; i < OPEN_MAX; i++){
 		if(proc_table[i] != NULL){
@@ -120,12 +123,14 @@ int sys_waitpid(pid_t pid, int *status, int options, pid_t* retval) {
 	KASSERT(proc_table[i] != NULL);
 	lock_acquire(proc_table[i]->lock);
 	if(proc_table[i]->exit_status){
-		err = copyout(&proc_table[i]->exit_code, (userptr_t)status, sizeof(proc_table[i]->exit_code));
-		if(err){
-			lock_release(proc_table[i]->lock);
-			proc_destroy(proc_table[i]);
-			proc_table[i] = NULL;
-			return err;
+		if(status != NULL) {
+			err = copyout(&proc_table[i]->exit_code, (userptr_t)status, sizeof(proc_table[i]->exit_code));
+			if(err){
+				lock_release(proc_table[i]->lock);
+				proc_destroy(proc_table[i]);
+				proc_table[i] = NULL;
+				return err;
+			}
 		}
 		lock_release(proc_table[i]->lock);
 		*retval = proc_table[i]->proc_id;
@@ -135,12 +140,14 @@ int sys_waitpid(pid_t pid, int *status, int options, pid_t* retval) {
 	}
 	//kprintf("PID %d going to wait for PID %d \n", proc_table[i]->parent_id, proc_table[i]->proc_id);
 	cv_wait(proc_table[i]->cv, proc_table[i]->lock);
-	err = copyout(&proc_table[i]->exit_code, (userptr_t)status, sizeof(proc_table[i]->exit_code));
-	if(err){
-		lock_release(proc_table[i]->lock);
-		proc_destroy(proc_table[i]);
-		proc_table[i] = NULL;
-		return err;
+	if(status != NULL) {
+		err = copyout(&proc_table[i]->exit_code, (userptr_t)status, sizeof(proc_table[i]->exit_code));
+		if(err){
+			lock_release(proc_table[i]->lock);
+			proc_destroy(proc_table[i]);
+			proc_table[i] = NULL;
+			return err;
+		}
 	}
 	lock_release(proc_table[i]->lock);
 	*retval = proc_table[i]->proc_id;

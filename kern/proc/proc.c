@@ -273,6 +273,7 @@ proc_create_runprogram(const char *name)
 	}
 
 	newproc->file_table[0]->offset = 0;
+	newproc->file_table[0]->con_file = true;
 	newproc->file_table[0]->lock = lock_create("STDIN");
 	if (newproc->file_table[0]->lock == NULL) {
 		kfree(con0);
@@ -315,6 +316,7 @@ proc_create_runprogram(const char *name)
         }
 
 	newproc->file_table[1]->offset = 0;
+	newproc->file_table[1]->con_file = true;
         newproc->file_table[1]->lock = lock_create("STDOUT");
         if (newproc->file_table[1]->lock == NULL) {
                 kfree(con0);
@@ -373,6 +375,7 @@ proc_create_runprogram(const char *name)
         }
 
 	newproc->file_table[2]->offset = 0;
+	newproc->file_table[2]->con_file = true;
         newproc->file_table[2]->lock = lock_create("STDERR");
         if (newproc->file_table[2]->lock == NULL) {
                 kfree(con0);

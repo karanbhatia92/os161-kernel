@@ -7,6 +7,7 @@ struct file_handle {
         struct lock *lock;
         int destroy_count; /* To check if pointing file descriptors are 0 */
         int mode_open;
+	bool con_file;
 };
 
 int sys_open(const char *filename, int flags, int *retval);
