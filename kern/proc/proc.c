@@ -249,6 +249,8 @@ proc_create_runprogram(const char *name)
 		proc_table[i] = NULL;
 	proc_table[0] = newproc;
 	proc_counter = 2;
+	arg_lock = lock_create("Arg_lock");
+	KASSERT(arg_lock != NULL);	
 	/* Process related syscall changes end here */
 
 	/* Console Initialization for STDIN*/
