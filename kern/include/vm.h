@@ -38,12 +38,26 @@
 
 
 #include <machine/vm.h>
+#include <synch.h>
 
 /* Fault-type arguments to vm_fault() */
 #define VM_FAULT_READ        0    /* A read was attempted */
 #define VM_FAULT_WRITE       1    /* A write was attempted */
 #define VM_FAULT_READONLY    2    /* A write to a readonly page was attempted*/
 
+/*Coremap initialization start*/
+
+typedef enum {free, fixed} page_state;
+
+struct coremap_page 
+{
+        int chunk_size;
+        page_state state;
+};
+
+void coremap_load(void);
+
+/* coremap initialization end*/
 
 /* Initialization function */
 void vm_bootstrap(void);
