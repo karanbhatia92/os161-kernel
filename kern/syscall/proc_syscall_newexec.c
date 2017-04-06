@@ -230,7 +230,7 @@ int sys_execv(const char *program, char **args) {
 	//char *program_ex1;
 	int bytes_remaining = ARG_MAX;
 	userptr_t argv_ex = NULL;
-	(void)program;
+	//(void)program;
 	//arg_length = strlen(program);
 	//program_ex = kmalloc(arg_length+1);
 	lock_acquire(arg_lock);

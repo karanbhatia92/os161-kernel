@@ -61,7 +61,7 @@
  * The process for the kernel; this holds all the kernel-only threads.
  */
 struct proc *kproc;
-
+int proc_counter = 0;
 /*
  * Create a proc structure.
  */

@@ -71,10 +71,10 @@ int sys_fork(pid_t *child_pid, struct trapframe *tf) {
 	//kprintf("PID %d forking child with PID : %d \n", childproc->parent_id, childproc->proc_id);
 	tf_child = (struct trapframe *)kmalloc(sizeof(struct trapframe));
 	//************ Test ***********//
-	kprintf("Address inside tf is : %p , Address inside tf_child is %p , \n", tf, tf_child);
-	if (tf == NULL || tf_child == NULL) {
-		kprintf("parent trapframe is null");
-	}
+	//kprintf("Address inside tf is : %p , Address inside tf_child is %p , \n", tf, tf_child);
+	//if (tf == NULL || tf_child == NULL) {
+		//kprintf("parent trapframe is null");
+	//}
 	//****************************//
 	*tf_child = *tf; 
 	//kprintf("PID %d stored in proc table at %d \n", childproc->proc_id, j);
@@ -212,7 +212,7 @@ int sys_getpid(pid_t *curproc_pid) {
 }
 
 int sys_execv(const char *program, char **args) {
-	//(void)args;
+
 	int err = 0;
 	int i = 0;
 	size_t got = 0;
@@ -231,6 +231,7 @@ int sys_execv(const char *program, char **args) {
 	int bytes_remaining = ARG_MAX;
 	userptr_t argv_ex = NULL;
 	
+
 	arg_length = strlen(program);
 	program_ex = kmalloc(arg_length+1);
 	err = copyinstr((const_userptr_t)program, program_ex, arg_length+1, &got);
