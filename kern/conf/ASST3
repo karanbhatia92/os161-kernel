@@ -30,4 +30,4 @@ options semfs			# Semaphores for userland
 options sfs			# Always use the file system
 #options netfs			# You might write this as a project.
 
-options newvm			# Use your own VM system now.
+options mipsvm			# Use your own VM system now.
