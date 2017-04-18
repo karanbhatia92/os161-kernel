@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2001, 2002, 2003, 2004, 2005, 2008, 2009
+ * Copyright (c) 2014
  *	The President and Fellows of Harvard College.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,59 +27,38 @@
  * SUCH DAMAGE.
  */
 
-#ifndef _VM_H_
-#define _VM_H_
-
 /*
- * VM system-related definitions.
+ * Create a sparse file by writing one byte to the end of it.
  *
- * You'll probably want to add stuff here.
+ * Should work on emufs (emu0:) once the basic system calls are done,
+ * and should work on SFS when the file system assignment is
+ * done. Sufficiently small files should work on SFS even before that
+ * assignment.
  */
 
+#include <stdlib.h>
+#include <stdio.h>
 
-#include <machine/vm.h>
-#include <synch.h>
-
-/* Fault-type arguments to vm_fault() */
-#define VM_FAULT_READ        0    /* A read was attempted */
-#define VM_FAULT_WRITE       1    /* A write was attempted */
-#define VM_FAULT_READONLY    2    /* A write to a readonly page was attempted*/
-
-/*Coremap initialization start*/
-
-typedef enum {free, fixed} page_state;
-
-struct coremap_page 
+//#define FILENAME "mylseektest.dat"
+//static const char *MAGIC = "h4xa0rRq0Vgbc96tiYJ^!#nXzZSAKPO";
+int main()//int argc, char *argv[])
 {
-        int chunk_size;
-        page_state state;
-};
-
-void coremap_load(void);
-
-/* coremap initialization end*/
-
-paddr_t getppageswrapper(unsigned long pages);
-
-/* Initialization function */
-void vm_bootstrap(void);
-
-/* Fault handling function called by trap code */
-int vm_fault(int faulttype, vaddr_t faultaddress);
-
-/* Allocate/free kernel heap pages (called by kmalloc/kfree) */
-vaddr_t alloc_kpages(unsigned npages);
-void free_kpages(vaddr_t addr);
-void free_ppages(paddr_t page_paddr);
-/*
- * Return amount of memory (in bytes) used by allocated coremap pages.  If
- * there are ongoing allocations, this value could change after it is returned
- * to the caller. But it should have been correct at some point in time.
- */
-unsigned int coremap_used_bytes(void);
-
-/* TLB shootdown handling called from interprocessor_interrupt */
-void vm_tlbshootdown(const struct tlbshootdown *);
-
-
-#endif /* _VM_H_ */
+	printf("Hello World");
+	return 0;
+}
+/* Fork Test
+{
+	int pid = fork();
+	if(pid > 0){
+		int status = 0;
+		pid_t ret = waitpid(pid, &status, 0);
+		tprintf("parent pid : %d", ret);
+	} else if(pid == 0) {
+		tprintf("child");
+		_exit(0);
+	} else {
+		tprintf("Not parant, not child");
+	}
+	return 0;
+}
+Fork Test end */

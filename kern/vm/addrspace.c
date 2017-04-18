@@ -29,11 +29,12 @@
 
 #include <types.h>
 #include <kern/errno.h>
+#include <spl.h>
 #include <lib.h>
 #include <addrspace.h>
 #include <vm.h>
 #include <proc.h>
-
+#include <mips/tlb.h>
 /*
  * Note! If OPT_DUMBVM is set, as is the case until you start the VM
  * assignment, this file is not compiled or linked or in any way
@@ -53,7 +54,10 @@ as_create(void)
 	/*
 	 * Initialize as needed.
 	 */
-
+	as->start_region = NULL;
+	as->start_page_table = NULL;
+	as->heap_start = 0;
+	as->heap_end = 0;
 	return as;
 }
 
@@ -61,17 +65,77 @@ int
 as_copy(struct addrspace *old, struct addrspace **ret)
 {
 	struct addrspace *newas;
+	struct page_table_entry *temp_pte = NULL;
+	struct page_table_entry *old_pte = NULL;
+	struct region *old_region = NULL;
+	struct region *temp_region = NULL;
+	paddr_t ppage = 0;
 
 	newas = as_create();
 	if (newas==NULL) {
 		return ENOMEM;
 	}
+	
+	old_pte = old->start_page_table;
+	old_region = old->start_region;
 
+	while(old_pte != NULL){
+		//if(newas->start_page_table == NULL) {
+		if(newas->start_page_table == NULL) {
+			temp_pte = kmalloc(sizeof(struct page_table_entry));
+			newas->start_page_table = temp_pte;
+		}else {
+			KASSERT(temp_pte->next == NULL);
+			temp_pte->next = kmalloc(sizeof(struct page_table_entry));
+			temp_pte = temp_pte->next;
+		}
+		temp_pte->as_vpage = old_pte->as_vpage;
+		temp_pte->vpage_permission = old_pte->vpage_permission;
+		temp_pte->next = NULL;
+		ppage = getppageswrapper(1);
+		memmove((void *)PADDR_TO_KVADDR(ppage),(const void *)PADDR_TO_KVADDR(old_pte->as_ppage),PAGE_SIZE);
+		temp_pte->as_ppage = ppage; 
+		old_pte = old_pte->next;	
+		/*}else {
+			temp_pte->next = kmalloc(sizeof(struct page_table_entry));
+			temp_pte = temp_pte->next;
+			temp_pte->as_vpage = old_pte->as_vpage;
+			temp_pte->vpage_permission = old_pte->vpage_permission;
+			temp_pte->next = NULL:
+			ppage = getppages(1);
+			memmove((void *)PADDR_TO_KVADDR(ppage),(const void *)PADDR_TO_KVADDR(old_pte->as_ppage),PAGE_SIZE);
+			temp_pte->as_ppage = ppage;
+			old_pte = old_pte->next;
+		}*/	
+	}
+
+	while(old_region != NULL) {
+		if(newas->start_region == NULL) {
+			temp_region = kmalloc(sizeof(struct region));
+			newas->start_region = temp_region;
+		}else {
+			KASSERT(temp_region->next == NULL);
+			temp_region->next = kmalloc(sizeof(struct region));
+			temp_region = temp_region->next;
+		}
+		temp_region->start = old_region->start;
+		temp_region->size = old_region->size;
+		temp_region->npages = old_region->npages;
+		temp_region->read = old_region->read;
+		temp_region->write = old_region->write;
+		temp_region->execute = old_region->execute;
+		temp_region->next = NULL;
+		old_region = old_region->next;
+	}
+
+	newas->heap_start = old->heap_start;
+	newas->heap_end = old->heap_end;
+	
 	/*
 	 * Write this.
 	 */
 
-	(void)old;
+	//(void)old;
 
 	*ret = newas;
 	return 0;
@@ -83,13 +147,29 @@ as_destroy(struct addrspace *as)
 	/*
 	 * Clean up as needed.
 	 */
-
+	KASSERT(as != NULL);
+	struct page_table_entry *pte = as->start_page_table;
+	struct region *rg = as->start_region;
+	struct page_table_entry *prev_pte = NULL;
+	struct region *prev_rg = NULL;		
+	while(pte != NULL) {
+		free_ppages(pte->as_ppage);
+		prev_pte = pte;
+		pte = pte->next;
+		kfree(prev_pte);
+	}
+	while(rg != NULL) {
+		prev_rg = rg;
+		rg = rg->next;
+		kfree(prev_rg);
+	}
 	kfree(as);
 }
 
 void
 as_activate(void)
 {
+        int i, spl;
 	struct addrspace *as;
 
 	as = proc_getas();
@@ -104,6 +184,15 @@ as_activate(void)
 	/*
 	 * Write this.
 	 */
+        /* Disable interrupts on this CPU while frobbing the TLB. */
+        spl = splhigh();
+
+        for (i=0; i<NUM_TLB; i++) {
+                tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
+        }
+
+        splx(spl);
+
 }
 
 void
@@ -130,17 +219,51 @@ int
 as_define_region(struct addrspace *as, vaddr_t vaddr, size_t memsize,
 		 int readable, int writeable, int executable)
 {
+	KASSERT(as != NULL);
+	size_t npages;
+	struct region *current_region;
 	/*
 	 * Write this.
 	 */
+        /* Align the region. First, the base... */
+        memsize += vaddr & ~(vaddr_t)PAGE_FRAME;
+        vaddr &= PAGE_FRAME;
 
-	(void)as;
-	(void)vaddr;
-	(void)memsize;
-	(void)readable;
-	(void)writeable;
-	(void)executable;
-	return ENOSYS;
+        /* ...and now the length. */
+        memsize = (memsize + PAGE_SIZE - 1) & PAGE_FRAME;
+
+        npages = memsize / PAGE_SIZE;
+	if (as->start_region == NULL) {
+		current_region = kmalloc(sizeof(struct region));
+		as->start_region = current_region;
+	} else {
+		current_region = as->start_region;
+		while(current_region->next != NULL) {
+			current_region = current_region->next;
+		}
+		current_region->next = kmalloc(sizeof(struct region));
+		current_region = current_region->next;
+	}
+	current_region->start = vaddr;
+	current_region->size = memsize;
+	current_region->npages = npages;
+	current_region->next = NULL;
+	if (readable == 4) {
+		current_region->read = true;
+	} else {
+		current_region->read = false;
+	}
+	if (writeable == 2) {
+		current_region->write = true;
+	} else {
+		current_region->write = false;
+	}
+	if (executable == 1) {
+		current_region->execute = true;
+	} else {
+		current_region->execute = false;
+	}
+	return 0;
 }
 
 int
@@ -172,9 +295,8 @@ as_define_stack(struct addrspace *as, vaddr_t *stackptr)
 	 * Write this.
 	 */
 
-	(void)as;
-
 	/* Initial user-level stack pointer */
+	(void)as;
 	*stackptr = USERSTACK;
 
 	return 0;

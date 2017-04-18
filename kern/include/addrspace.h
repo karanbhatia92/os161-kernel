@@ -40,6 +40,25 @@
 
 struct vnode;
 
+/*
+ * Page Table Entry of a process
+ */
+struct page_table_entry {
+	vaddr_t as_vpage;
+	paddr_t as_ppage;
+	int vpage_permission;
+	struct page_table_entry *next; 	
+};
+
+struct region {
+	vaddr_t start;
+	size_t size;
+	size_t npages;
+	bool read;
+	bool write;
+	bool execute;
+	struct region *next;
+};
 
 /*
  * Address space - data structure associated with the virtual memory
@@ -59,6 +78,10 @@ struct addrspace {
         paddr_t as_stackpbase;
 #else
         /* Put stuff here for your VM system */
+	struct region *start_region;
+	struct page_table_entry *start_page_table;
+	vaddr_t heap_start;
+	vaddr_t heap_end;
 #endif
 };
 
