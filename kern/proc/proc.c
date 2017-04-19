@@ -53,10 +53,8 @@
 #include <synch.h>
 #include <kern/fcntl.h>
 #include <vfs.h>
-
 /* Include for Process Syscalls */
 #include <proc_syscall.h>
-
 /*
  * The process for the kernel; this holds all the kernel-only threads.
  */
@@ -125,7 +123,6 @@ proc_destroy(struct proc *proc)
 	 * hang around beyond process exit. Some wait/exit designs
 	 * do, some don't.
 	 */
-
 	KASSERT(proc != NULL);
 	KASSERT(proc != kproc);
 
@@ -186,6 +183,7 @@ proc_destroy(struct proc *proc)
 			as = proc->p_addrspace;
 			proc->p_addrspace = NULL;
 		}
+
 		as_destroy(as);
 	}
 
@@ -194,7 +192,18 @@ proc_destroy(struct proc *proc)
                 if(proc->file_table[i] != NULL){
                         lock_acquire(proc->file_table[i]->lock);
                         proc->file_table[i]->destroy_count--;
-                        lock_release(proc->file_table[i]->lock);
+			if(proc->file_table[i]->destroy_count > 0) {
+				lock_release(proc->file_table[i]->lock);
+                		proc->file_table[i] = NULL;
+        		}else {
+				lock_release(proc->file_table[i]->lock);
+                		KASSERT(proc->file_table[i]->destroy_count == 0);
+                		lock_destroy(proc->file_table[i]->lock);
+                		vfs_close(proc->file_table[i]->vnode);
+                		kfree(proc->file_table[i]);
+                		proc->file_table[i] = NULL;
+        		}
+                        //lock_release(proc->file_table[i]->lock);
                 }
         }
 	lock_destroy(proc->lock);
@@ -205,6 +214,7 @@ proc_destroy(struct proc *proc)
 	spinlock_cleanup(&proc->p_lock);
 	kfree(proc->p_name);
 	kfree(proc);
+
 }
 
 /*
@@ -228,6 +238,7 @@ proc_bootstrap(void)
 struct proc *
 proc_create_runprogram(const char *name)
 {
+
 	struct proc *newproc;
 
 	newproc = proc_create(name);
@@ -250,6 +261,7 @@ proc_create_runprogram(const char *name)
 	proc_table[0] = newproc;
 	proc_counter = 2;
 	arg_lock = lock_create("Arg_lock");
+
 	KASSERT(arg_lock != NULL);	
 	/* Process related syscall changes end here */
 
@@ -273,10 +285,13 @@ proc_create_runprogram(const char *name)
 		kfree(newproc->file_table[0]);
 		return NULL;
 	}
+	kfree(con0);
 
 	newproc->file_table[0]->offset = 0;
 	newproc->file_table[0]->con_file = true;
+
 	newproc->file_table[0]->lock = lock_create("STDIN");
+
 	if (newproc->file_table[0]->lock == NULL) {
 		kfree(con0);
 		vfs_close(newproc->file_table[0]->vnode);
@@ -316,7 +331,7 @@ proc_create_runprogram(const char *name)
                 kfree(newproc->file_table[1]);
                 return NULL;
         }
-
+	kfree(con1);
 	newproc->file_table[1]->offset = 0;
 	newproc->file_table[1]->con_file = true;
         newproc->file_table[1]->lock = lock_create("STDOUT");
@@ -375,7 +390,7 @@ proc_create_runprogram(const char *name)
 		kfree(newproc->file_table[2]);
                 return NULL;
         }
-
+	kfree(con2);
 	newproc->file_table[2]->offset = 0;
 	newproc->file_table[2]->con_file = true;
         newproc->file_table[2]->lock = lock_create("STDERR");
@@ -402,13 +417,13 @@ proc_create_runprogram(const char *name)
 	 * (We don't need to lock the new process, though, as we have
 	 * the only reference to it.)
 	 */
+
 	spinlock_acquire(&curproc->p_lock);
 	if (curproc->p_cwd != NULL) {
 		VOP_INCREF(curproc->p_cwd);
 		newproc->p_cwd = curproc->p_cwd;
 	}
 	spinlock_release(&curproc->p_lock);
-
 	return newproc;
 }
 

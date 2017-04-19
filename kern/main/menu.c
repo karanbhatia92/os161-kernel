@@ -49,6 +49,7 @@
 #include "opt-synchprobs.h"
 #include "opt-automationtest.h"
 #include <proc_syscall.h>
+
 /*
  * In-kernel menu and command dispatcher.
  */
@@ -145,8 +146,8 @@ common_prog(int nargs, char **args)
 	if(err){
 		kprintf("Got err %d \n", err);
 	}
-	kprintf("sssssssssssssssssssssssssssssssssssssss done waiting on pid value : %d \n", p);
-
+	kprintf("Done waiting on pid value : %d \n", p);
+        lock_destroy(arg_lock);
 	/*
 	 * The new process will be destroyed when the program exits...
 	 * once you write the code for handling that.
@@ -155,7 +156,6 @@ common_prog(int nargs, char **args)
 	// Wait for all threads to finish cleanup, otherwise khu be a bit behind,
 	// especially once swapping is enabled.
 	thread_wait_for_count(tc);
-
 	return 0;
 }
 

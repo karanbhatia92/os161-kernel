@@ -14,7 +14,6 @@
 #include <vnode.h>
 
 int sys_fork(pid_t *child_pid, struct trapframe *tf) {
-
 	int i = 0;
 	int j = 0;	
 	struct trapframe *tf_child;
@@ -88,7 +87,6 @@ int sys_fork(pid_t *child_pid, struct trapframe *tf) {
 }
 
 int sys_waitpid(pid_t pid, int *status, int options, pid_t* retval) {
-
 	int i = 0;
 	int err = 0;
 	if(options != 0){
@@ -159,7 +157,6 @@ int sys_waitpid(pid_t pid, int *status, int options, pid_t* retval) {
 }
 
 void sys_exit(int exitcode){
-	
 	int i = 0;
 	/*
 	if(proc_table[0]->proc_id == curproc->proc_id){
