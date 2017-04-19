@@ -165,7 +165,6 @@ void sys_exit(int exitcode){
 		return;
 	}
 	*/
-
 	for(i = 0; i < OPEN_MAX; i++){
 		if(proc_table[i] != NULL){
 			if(proc_table[i]->proc_id == curproc->proc_id)
@@ -208,71 +207,61 @@ int sys_getpid(pid_t *curproc_pid) {
 	return 0;
 }
 
-int sys_execv(const char *program, char **args) {
+int sys_execv(const char *program, char **args1) {
 
 	int err = 0;
 	int i = 0;
 	size_t got = 0;
+	int extra_vals = 0;
+	int padding = 0;
 	int arg_counter = 0;
 	struct addrspace *as;
+	struct addrspace *old_as;
 	struct vnode *v;
 	vaddr_t entrypoint, stackptr;
 	int result;
-	int arg_length = 0;
-	//char **args_ex = NULL;	
-	char **args_ex1 = NULL;
-	char **args_stack_ptr = NULL;
-	char *program_ex = NULL;
-	//char *program_cp = program_ex;
-	//char *program_ex1;
+	int current_position = 0;
 	int bytes_remaining = ARG_MAX;
 	userptr_t argv_ex = NULL;
-	
-
-	arg_length = strlen(program);
-	program_ex = kmalloc(arg_length+1);
-	err = copyinstr((const_userptr_t)program, program_ex, arg_length+1, &got);
+	char prog_name[PATH_MAX];
+	char *args;
+		
+	err = copyin((const_userptr_t)args1, &args, sizeof(args));
 	if(err){
-		kfree(program_ex);
 		return err;
 	}
-	bytes_remaining -= strlen(program_ex);
-	//strcopy(&program_ex1, &program_ex, &bytes_remaining);
-
-	while(args[arg_counter] != NULL){
-		arg_counter++;
+	lock_acquire(arg_lock);	
+	err = copyinstr((const_userptr_t)program, prog_name, PATH_MAX, &got);
+	if (err) {
+		lock_release(arg_lock);
+		return err;
 	}
-	//args_ex = kmalloc(sizeof(char *)*arg_counter);
-	args_ex1 = kmalloc(sizeof(char *)*arg_counter);
-	for (i = 0; i < arg_counter; i++) {
-		/*if(bytes_remaining == 64104){
-			kprintf("Caught ast \n");
-		}*/
-		arg_length = strlen(args[i]);
-		args_ex1[i] = kmalloc(arg_length+1);	
-		err = copyinstr((const_userptr_t)args[i], args_ex1[i], arg_length+1, &got);
-		if (err) {
-			if(err == 6){
-				kprintf("Caught \n");
-			}
-			kfree(program_ex);
-			//kfree(args_ex);
-			kfree(args_ex1);
+	while(args1[arg_counter] != NULL){
+		err = copyinstr((const_userptr_t)args1[arg_counter], &arguments[current_position], bytes_remaining, &got);
+		if(err) {
+			lock_release(arg_lock);
 			return err;
 		}
+		arg_pointers[arg_counter] = current_position; 
+		current_position += got;
+		extra_vals = got%4;
+		if(extra_vals != 0) {
+			padding = 4 - extra_vals;
+			for(i = 0; i < padding; i++) {
+				arguments[current_position + i] = '\0';
+			}
+			current_position += padding;
+			bytes_remaining -= (got + padding);
+		}else {
+			bytes_remaining -= got;
+		}
+		arg_counter++;
 		
-		//args_ex1[i] = kmalloc((sizeof(char) * strlen(args_ex[i]))+1);
-		//strcpy(args_ex1[i], args_ex[i]);
-		//kfree(args_ex[i]);
-		bytes_remaining -= strlen(args_ex1[i]);
-		//strcopy(&args_ex1[i], &args_ex[i], &bytes_remaining);	
-		//kprintf("Printing bytes remaining to check %d \n", bytes_remaining);
-		//kprintf("Printing args_ex1 %d string %s and bytes remaining %d \n", i, args_ex1[i], bytes_remaining);
 	}
-	//kfree(args_ex);
-	
-	result = vfs_open(program_ex, O_RDONLY, 0, &v);
+			
+	result = vfs_open(prog_name, O_RDONLY, 0, &v);
 	if (result) {
+		lock_release(arg_lock);
 		return result;
 	}
 	
@@ -282,11 +271,14 @@ int sys_execv(const char *program, char **args) {
 		return ENOMEM;
 	}
 
-	proc_setas(as);
+	old_as = proc_setas(as);
+	as_destroy(old_as);
 	as_activate();
 	
 	result = load_elf(v, &entrypoint);
 	if (result) {
+		lock_release(arg_lock);
+		as_destroy(as);
 		vfs_close(v);
 		return result;
 	}
@@ -295,54 +287,28 @@ int sys_execv(const char *program, char **args) {
 
 	result = as_define_stack(as, &stackptr);
 	if(result) {
+		lock_release(arg_lock);
 		return result;
 	}
+	
+	KASSERT(current_position % 4 == 0);
+	stackptr -= current_position;
+	copyout(arguments, (userptr_t)stackptr, current_position);
 
-	args_stack_ptr = kmalloc(sizeof(char *)*arg_counter);
-	for(i = 0; i < arg_counter; i++) {
-		int len = strlen(args_ex1[i]);
-		int no_null_terminator = 4 - len%4;
-		int blocks = len/4;
-		int copy_len = 0;
-		if (no_null_terminator == 4) {
-			copy_len = len + 4;
-		}else{
-			copy_len = len + no_null_terminator;	
-		}
-		args_stack_ptr[i] = kmalloc(copy_len);
-		strcpy(args_stack_ptr[i], args_ex1[i]);
-		for (int j = 0; j < no_null_terminator; j++){
-			args_stack_ptr[i][len + j] = '\0';
-		}
-		stackptr -= 4 * (blocks + 1);
-		copyout(args_stack_ptr[i], (userptr_t)stackptr, copy_len);
-		args_stack_ptr[i] = (char *)stackptr;
-	}
-
-	for(i = arg_counter ; i >= 0; i--) {
-		char *temp = NULL;
-		if (i == arg_counter) {
-			temp = NULL;
-		}else{
-			temp = args_stack_ptr[i];
-		}
+	stackptr -= 4;
+	char *temp = NULL;
+	copyout(&temp, (userptr_t)stackptr, sizeof(temp));
+	
+	for(i = arg_counter-1 ; i >= 0; i--) {
 		stackptr -= 4;
-		copyout(&temp, (userptr_t)stackptr, sizeof(temp)); 
+		int val = USERSTACK - (current_position - arg_pointers[i]);
+		temp = (char *)val;
+		copyout(&temp, (userptr_t)stackptr, sizeof(temp));
 	}
 
 	argv_ex = (userptr_t)stackptr;
 	stackptr = stackptr - 4;
-	//kprintf("Arg counter %d \n", arg_counter);	
+	lock_release(arg_lock);
 	enter_new_process(arg_counter, argv_ex, NULL, stackptr, entrypoint);
 	return EINVAL;
 }
-
-void strcopy(char **destination, char **source, int* bytes_remaining) {
-
-	*destination = kmalloc((sizeof(char) * strlen(*source))+1);
-	strcpy(*destination, *source);
-	kfree(*source);
-	*bytes_remaining -= strlen(*destination);
-
-}
-

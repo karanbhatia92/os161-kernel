@@ -6,8 +6,9 @@
 #include <synch.h>
 #include <limits.h>
 /* Process Table that is used to map between process structures and PIDs */
-
+#define MAX_NO_ARGS 3851
 char arguments[ARG_MAX];
+int arg_pointers[MAX_NO_ARGS];
 struct lock *arg_lock;
 struct proc *proc_table[OPEN_MAX];
 extern int proc_counter;

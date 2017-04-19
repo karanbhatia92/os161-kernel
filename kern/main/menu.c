@@ -144,10 +144,13 @@ common_prog(int nargs, char **args)
 	int p = 0;
 	int err = sys_waitpid(2, &a, 0, &p);
 	if(err){
-		kprintf("Got err %d \n", err);
+		if(err != 6) {
+			kprintf("Got err %d \n", err);
+		}
 	}
-	kprintf("Done waiting on pid value : %d \n", p);
+	//kprintf("Done waiting on pid value : %d \n", p);
         lock_destroy(arg_lock);
+
 	/*
 	 * The new process will be destroyed when the program exits...
 	 * once you write the code for handling that.
@@ -156,6 +159,7 @@ common_prog(int nargs, char **args)
 	// Wait for all threads to finish cleanup, otherwise khu be a bit behind,
 	// especially once swapping is enabled.
 	thread_wait_for_count(tc);
+        // lock_destroy(arg_lock);
 	return 0;
 }
 

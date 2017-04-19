@@ -125,7 +125,6 @@ proc_destroy(struct proc *proc)
 	 */
 	KASSERT(proc != NULL);
 	KASSERT(proc != kproc);
-
 	/*
 	 * We don't take p_lock in here because we must have the only
 	 * reference to this structure. (Otherwise it would be
