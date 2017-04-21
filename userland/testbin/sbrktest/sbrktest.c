@@ -240,6 +240,7 @@ checkpagelight(volatile void *baseptr, unsigned pageoffset, bool neednl)
 	pageptr += (size_t)PAGE_SIZE * pageoffset;
 
 	pl = (volatile unsigned long *)pageptr;
+		
 	if (pl[0] != pageoffset) {
 		if (neednl) {
 			tprintf("\n");

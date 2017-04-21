@@ -160,6 +160,10 @@ syscall(struct trapframe *tf)
 	    case SYS_execv:
 		err = sys_execv((const char *)tf->tf_a0,  (char **)tf->tf_a1);
 		break;
+		
+	    case SYS_sbrk:
+		err = sys_sbrk((intptr_t)tf->tf_a0, (vaddr_t *)&retval);
+		break;
 
 	    default:
 		kprintf("Unknown syscall %d\n", callno);
@@ -213,11 +217,13 @@ void
 enter_forked_process(void *void_tf, unsigned long num)
 {
 	(void)num;
-        struct trapframe tf_child = *(struct trapframe *)void_tf;
+        as_activate();
+	struct trapframe tf_child = *(struct trapframe *)void_tf;
 	kfree((struct trapframe *)void_tf);
         tf_child.tf_v0 = 0;
         tf_child.tf_a3 = 0;
         tf_child.tf_epc += 4;
+	
 	//curproc->p_addrspace = (struct addrspace *)child_addrspace;
 	mips_usermode(&tf_child);
 }

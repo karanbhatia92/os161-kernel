@@ -17,5 +17,5 @@ int sys_waitpid(pid_t pid, int *status, int options, pid_t* retval);
 void sys_exit(int exitcode);
 int sys_getpid(pid_t *curproc_pid);
 int sys_execv(const char *program, char **args);
-void strcopy(char **destination, char **source, int* bytes_remaining);
+int sys_sbrk(intptr_t amount, vaddr_t* retval);
 #endif

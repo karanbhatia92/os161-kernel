@@ -45,6 +45,7 @@
 #define VM_FAULT_WRITE       1    /* A write was attempted */
 #define VM_FAULT_READONLY    2    /* A write to a readonly page was attempted*/
 
+#define VM_STACKPAGES 1024
 /*Coremap initialization start*/
 
 typedef enum {free, fixed} page_state;
@@ -71,6 +72,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress);
 vaddr_t alloc_kpages(unsigned npages);
 void free_kpages(vaddr_t addr);
 void free_ppages(paddr_t page_paddr);
+void tlb_invalidate_entry(vaddr_t remove_vaddr);
 /*
  * Return amount of memory (in bytes) used by allocated coremap pages.  If
  * there are ongoing allocations, this value could change after it is returned

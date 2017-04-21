@@ -93,6 +93,9 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 		temp_pte->vpage_permission = old_pte->vpage_permission;
 		temp_pte->next = NULL;
 		ppage = getppageswrapper(1);
+		if(ppage == 0) {
+			return ENOMEM;
+		}
 		memmove((void *)PADDR_TO_KVADDR(ppage),(const void *)PADDR_TO_KVADDR(old_pte->as_ppage),PAGE_SIZE);
 		temp_pte->as_ppage = ppage; 
 		old_pte = old_pte->next;	
@@ -272,8 +275,22 @@ as_prepare_load(struct addrspace *as)
 	/*
 	 * Write this.
 	 */
-
-	(void)as;
+	vaddr_t heap_addr = 0;
+	vaddr_t largest_vaddr = 0;
+	size_t largest_vaddr_size = 0;
+	struct region *rg = as->start_region;
+	largest_vaddr = rg->start;
+	while(rg != NULL) {
+		if (rg->start > largest_vaddr) {
+			largest_vaddr = rg->start;
+			largest_vaddr_size = rg->size;
+		}
+		rg = rg->next;
+	}
+	heap_addr = largest_vaddr + largest_vaddr_size;
+	KASSERT(heap_addr%4 == 0);
+	as->heap_start = heap_addr;
+	as->heap_end = heap_addr;
 	return 0;
 }
 

@@ -12,6 +12,7 @@
 #include <copyinout.h>
 #include <kern/fcntl.h>
 #include <vnode.h>
+#include <vm.h>
 
 int sys_fork(pid_t *child_pid, struct trapframe *tf) {
 	int i = 0;
@@ -311,4 +312,121 @@ int sys_execv(const char *program, char **args1) {
 	lock_release(arg_lock);
 	enter_new_process(arg_counter, argv_ex, NULL, stackptr, entrypoint);
 	return EINVAL;
+}
+
+int sys_sbrk(intptr_t amount, vaddr_t *retval) {
+	
+	long old_break;
+	struct addrspace *as;
+	int pages;
+	long new_break;
+	vaddr_t remove_vpage;
+	struct page_table_entry *temp_pte;
+	struct page_table_entry *prev_pte;
+
+	as = proc_getas();
+	KASSERT(as != NULL);
+	if(amount < 0) {
+		amount = amount * -1; 
+		new_break = (long)as->heap_end - amount;
+		if(new_break < 0) {
+			return EINVAL;
+		}
+	} else if(amount > 0) {
+		new_break = (long)as->heap_end + amount;
+		if(new_break < 0) {
+			return ENOMEM;
+		}
+	} else {
+		*retval = as->heap_end;
+		return 0;
+	}
+	if (amount % PAGE_SIZE != 0) {
+		return EINVAL;	
+	} 
+
+	pages = amount/PAGE_SIZE;
+	//kprintf("Page size %d,  Pages : %d", PAGE_SIZE, pages);
+	old_break = as->heap_end;
+	
+	temp_pte = as->start_page_table;
+	KASSERT(temp_pte != NULL);
+	prev_pte = temp_pte;
+	KASSERT(old_break != new_break);
+	if (old_break < new_break) {
+		if(new_break >= (long)(USERSTACK - VM_STACKPAGES * PAGE_SIZE)){
+			return ENOMEM;
+		}
+
+
+		/*	
+		new_pages_addr = getppageswrapper(pages);
+		if(new_pages_addr == 0) {
+			return ENOMEM;
+		}
+
+		as->heap_end = new_break;
+	
+		while(temp_pte->next != NULL) {
+			temp_pte = temp_pte->next;
+		}
+
+		for (int i = 0; i < pages; i++){
+			temp_pte->next = kmalloc(sizeof(struct page_table_entry));
+			temp_pte = temp_pte->next;
+			temp_pte->next = NULL;
+			temp_pte->as_vpage = old_break + (i+1)*PAGE_SIZE;
+			KASSERT(temp_pte->as_vpage % PAGE_SIZE == 0);
+			temp_pte->as_ppage = new_pages_addr + i * PAGE_SIZE;
+			KASSERT(temp_pte->as_ppage % PAGE_SIZE == 0);
+			temp_pte->vpage_permission = 0;
+		}
+		*/	
+	}else {
+		if(new_break < (long)as->heap_start) {
+			return EINVAL;
+		}
+		
+		for (int i = 0; i < pages; i++) {
+			remove_vpage = old_break - (i+1)*PAGE_SIZE;
+			temp_pte = as->start_page_table;
+			prev_pte = temp_pte;
+			//bool found = false;
+			while(temp_pte != NULL) {
+				if(temp_pte->as_vpage == remove_vpage) {
+					free_ppages(temp_pte->as_ppage);
+					tlb_invalidate_entry(remove_vpage);
+					if(temp_pte == as->start_page_table) {
+						temp_pte = temp_pte->next;
+						kfree(prev_pte);
+						as->start_page_table = temp_pte;
+						//found = true;
+						break;		
+					} else if (temp_pte->next == NULL) {
+						kfree(temp_pte);
+						prev_pte->next = NULL;
+						//found = true;
+						break;
+					} else {
+						temp_pte = temp_pte->next;
+						kfree(prev_pte->next);
+						prev_pte->next = temp_pte;
+						//found = true;
+						break;
+					}
+				} else {
+					prev_pte = temp_pte;
+					temp_pte = temp_pte->next;
+				}
+			}
+			/*
+			if (found == false) {
+				return EINVAL;
+			}
+			*/
+		}
+	}
+	as->heap_end = (vaddr_t)new_break;
+	*retval = (vaddr_t)old_break;
+	return 0;
 }

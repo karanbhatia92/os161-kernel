@@ -10,7 +10,6 @@
 #include <addrspace.h>
 #include <vm.h>
 #include <mips/tlb.h>
-#define VM_STACKPAGES	18
 
 static paddr_t lastpaddr, firstpaddr;
 struct coremap_page * coremap_start;
@@ -165,6 +164,21 @@ void free_ppages(paddr_t page_paddr) {
 	spinlock_release(&coremap_lock);
 	
 }
+
+void tlb_invalidate_entry(vaddr_t remove_vaddr) {
+
+	uint32_t ehi, elo;	
+	int spl = splhigh();
+        for (int i=0; i<NUM_TLB; i++) {
+                tlb_read(&ehi, &elo, i);
+                if (ehi == remove_vaddr) {
+			tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
+			break;
+		}
+        }
+        splx(spl);	
+}
+
 int vm_fault(int faulttype, vaddr_t faultaddress)
 {
 	struct addrspace *as;

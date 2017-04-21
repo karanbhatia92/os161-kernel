@@ -231,14 +231,14 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 			continue;
 		}
 		ehi = faultaddress;
-		elo = ppage | TLBLO_DIRTY | TLBLO_VALID;
+		elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
 		DEBUG(DB_VM, "dumbvm: 0x%x -> 0x%x\n", faultaddress, paddr);
 		tlb_write(ehi, elo, i);
 		splx(spl);
 		return 0;
 	}
 	ehi = faultaddress;
-        elo = ppage | TLBLO_DIRTY | TLBLO_VALID;
+        elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
 	tlb_random(ehi, elo);
 	kprintf("dumbvm: Ran out of TLB entries - cannot handle page fault\n");
 	splx(spl);
@@ -394,7 +394,7 @@ as_define_stack(struct addrspace *as, vaddr_t *stackptr)
 	return 0;
 }
 
-nt
+int
 as_copy(struct addrspace *old, struct addrspace **ret)
 {
 	struct addrspace *new;
