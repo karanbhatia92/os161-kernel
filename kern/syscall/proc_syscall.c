@@ -27,7 +27,7 @@ int sys_fork(pid_t *child_pid, struct trapframe *tf) {
 	/* Process Initialization */
 	struct proc *childproc = process_create("child_process");
 	if (childproc == NULL) {
-		return -1;
+		return ENOMEM;
 	}
 
 	while(proc_table[j] != NULL){
@@ -194,9 +194,10 @@ void sys_exit(int exitcode){
 	lock_release(curproc->lock);
 	thread_exit();
 	} else {
+		
+		cv_signal(curproc->cv, curproc->lock);
 		//kprintf("No Parent waiting for PID %d, now destroying it \n", curproc->proc_id);
 		lock_release(curproc->lock);
-		//proc_destroy(curproc);
 		//proc_table[i] = NULL;
 		//kprintf("After proc destroy \n");
 		thread_exit();

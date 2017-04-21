@@ -99,9 +99,13 @@ proc_create(const char *name)
 	proc->parent_waiting = false;
 	proc->exit_code = -1;	
 	proc->lock = lock_create("Proc_lock");
-	KASSERT(proc->lock != NULL);
+	if(proc->lock == NULL) {
+		return NULL;
+	}
 	proc->cv = cv_create("Proc_cv");
-	KASSERT(proc->cv != NULL);
+	if(proc->cv == NULL) {
+		return NULL;
+	}
 	/* Process Call related changes end here  */	
 
 	return proc;
