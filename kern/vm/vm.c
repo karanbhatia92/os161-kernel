@@ -241,6 +241,9 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
 	}
 	if(as->start_page_table == NULL) {
 		ppage  = getppages(1);
+		if(ppage == 0) {
+			return ENOMEM;
+		}
 		as->start_page_table = kmalloc(sizeof(struct page_table_entry));
 		pte = as->start_page_table;
 		pte->as_vpage = faultaddress;
@@ -259,6 +262,9 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
 		}
 		if (pte == NULL) {
 			ppage  = getppages(1);
+			if(ppage == 0) {
+				return ENOMEM;
+			}
                 	pte_prev->next = kmalloc(sizeof(struct page_table_entry));
 			pte = pte_prev->next;
                 	pte->as_vpage = faultaddress;
