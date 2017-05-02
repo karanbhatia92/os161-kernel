@@ -9,17 +9,21 @@
 #include <mips/tlb.h>
 #include <addrspace.h>
 #include <vm.h>
-#include <mips/tlb.h>
+#include <uio.h>
+#include <stat.h>
+#include <vnode.h>
+#include <vfs.h>
+#include <bitmap.h>
+#include <kern/fcntl.h>
 
 static paddr_t lastpaddr, firstpaddr;
-struct coremap_page * coremap_start;
+struct coremap_page *coremap_start;
 static int coremap_used_counter;
-static bool load_complete = true;
 static struct spinlock coremap_lock = SPINLOCK_INITIALIZER;
+struct swap_disk swap;
+static unsigned int roundrobin_counter;
 
-static
-void
-as_zero_region(paddr_t paddr, unsigned npages)
+static void as_zero_region(paddr_t paddr, unsigned npages)
 {
         bzero((void *)PADDR_TO_KVADDR(paddr), npages * PAGE_SIZE);
 }
@@ -29,38 +33,67 @@ void coremap_load() {
 	lastpaddr = ram_getsize();
 	firstpaddr = ram_getfirstfree();
 
-	if(firstpaddr % 4096 != 0) {
-		firstpaddr = ((firstpaddr/4096) + 1) * 4096;
+	if(firstpaddr % PAGE_SIZE != 0) {
+		firstpaddr = ((firstpaddr/PAGE_SIZE) + 1) * PAGE_SIZE;
 	}
 
-	unsigned int pages = lastpaddr/4096;
+	unsigned int pages = lastpaddr/PAGE_SIZE;
 
 	coremap_start = (struct coremap_page *)PADDR_TO_KVADDR(firstpaddr);
 
-	unsigned int coremap_size = sizeof(struct coremap_page)*pages/4096;
+	unsigned int coremap_size = sizeof(struct coremap_page)*pages/PAGE_SIZE;
 
-	if ((sizeof(struct coremap_page)*pages) % 4096 != 0) {
+	if ((sizeof(struct coremap_page)*pages) % PAGE_SIZE != 0) {
 		coremap_size = coremap_size + 1;
 	}
 
-	firstpaddr = firstpaddr + coremap_size * 4096;
+	firstpaddr = firstpaddr + coremap_size * PAGE_SIZE;
 	
-	KASSERT(firstpaddr % 4096 == 0);	
+	KASSERT(firstpaddr % PAGE_SIZE == 0);	
 
-	for (unsigned int i = 0; i < firstpaddr/4096; i++) {
+	for (unsigned int i = 0; i < firstpaddr/PAGE_SIZE; i++) {
 		coremap_start[i].chunk_size = 0;
 		coremap_start[i].state = fixed;
 	}
 	
-	for (unsigned int i = firstpaddr/4096; i < lastpaddr/4096; i++){
+	for (unsigned int i = firstpaddr/PAGE_SIZE; i < lastpaddr/PAGE_SIZE; i++){
 		coremap_start[i].chunk_size = 0;
 		coremap_start[i].state = free;
 	}
+	roundrobin_counter = firstpaddr/PAGE_SIZE;
 		
 }
 
 void vm_bootstrap(void) {
+	int err;
+	struct vnode *v;
+	struct stat disk_stat;
+	char diskpath[] = "lhd0raw:";
+	err = vfs_open(diskpath, O_RDWR, 0, &v);
+	if (err) {
+		swap.vnode = NULL;
+		swap.lock = NULL;
+		swap.bitmap = NULL;
+		swap.swap_disk_present = false;	
+		return;
+	}
 	
+	err = VOP_STAT(v, &disk_stat);
+	if (err) {
+		vfs_close(v);
+		swap.vnode = NULL;
+		swap.lock = NULL;
+		swap.bitmap = NULL;
+		swap.swap_disk_present = false;
+		return;
+	}
+	KASSERT(disk_stat.st_size % PAGE_SIZE == 0);
+	swap.bitmap = bitmap_create(disk_stat.st_size/PAGE_SIZE);
+	KASSERT(swap.bitmap != NULL);
+	swap.lock = lock_create("Bitmap_Lock");
+	KASSERT(swap.lock != NULL);
+	swap.swap_disk_present = true;
+	swap.vnode = v;
 }
 
 
@@ -69,11 +102,9 @@ static paddr_t getppages(unsigned long npages) {
 	paddr_t addr = 0;
 	unsigned int free_pages = 0;
 	
-	if(load_complete) {
-		spinlock_acquire(&coremap_lock);
-	}
+	spinlock_acquire(&coremap_lock);
 
-	for(unsigned int i = firstpaddr/4096; i < lastpaddr/4096; i++) {
+	for(unsigned int i = firstpaddr/PAGE_SIZE; i < lastpaddr/PAGE_SIZE; i++) {
 		
 		if(coremap_start[i].state == free) {
 			free_pages++;
@@ -82,36 +113,81 @@ static paddr_t getppages(unsigned long npages) {
 		}
 
 		if(free_pages == npages) {
-			addr = (i - (npages - 1))*4096;
+			addr = (i - (npages - 1))*PAGE_SIZE;
+			coremap_used_counter += npages;
 			break;
 		}
 	}
 
 	if(free_pages != npages) {
-		if(load_complete){
-			spinlock_release(&coremap_lock);
-		}
-		return 0;
+		if (swap.swap_disk_present) {
+                        addr = swapout();
+                } else {
+                        spinlock_release(&coremap_lock);
+                        return 0;
+                }
 	}
 	
 	for(unsigned int i = 0; i < npages; i++) {
-		coremap_start[(addr/4096) + i].state = fixed;
+		coremap_start[(addr/PAGE_SIZE) + i].state = fixed;
+		coremap_start[(addr/PAGE_SIZE) + i].owner_addrspace = NULL;
+		coremap_start[(addr/PAGE_SIZE) + i].owner_vaddr = 0;
 		if(i == 0) {
-			coremap_start[(addr/4096) + i].chunk_size = npages;
+			coremap_start[(addr/PAGE_SIZE) + i].chunk_size = npages;
 		} 
 	}
 	as_zero_region(addr, npages);
-	coremap_used_counter += npages;
-	if(load_complete) {
-		spinlock_release(&coremap_lock);
-	}
+//	coremap_used_counter += npages;
+	spinlock_release(&coremap_lock);
 
 	return addr;
 }
 
-paddr_t getppageswrapper(unsigned long pages){
-        paddr_t ppages_addr = getppages(pages);
-        return ppages_addr;
+paddr_t getuserpage(unsigned long npages, struct addrspace *as, vaddr_t as_vpage){
+       
+	KASSERT(npages == 1); 
+	paddr_t addr = 0;
+	unsigned int free_pages = 0;
+	
+	spinlock_acquire(&coremap_lock);
+
+	for(unsigned int i = firstpaddr/PAGE_SIZE; i < lastpaddr/PAGE_SIZE; i++) {
+		
+		if(coremap_start[i].state == free) {
+			free_pages++;
+		}else {
+			free_pages = 0;
+		}
+
+		if(free_pages == npages) {
+			addr = (i - (npages - 1))*PAGE_SIZE;
+			coremap_used_counter += npages;
+			break;
+		}
+	}
+
+	if(free_pages != npages) {
+		if (swap.swap_disk_present) {
+			addr = swapout();
+		} else {
+			spinlock_release(&coremap_lock);
+			return 0;
+		}
+	}
+	
+	for(unsigned int i = 0; i < npages; i++) {
+		coremap_start[(addr/PAGE_SIZE) + i].state = used;
+		coremap_start[(addr/PAGE_SIZE) + i].owner_addrspace = as;
+		coremap_start[(addr/PAGE_SIZE) + i].owner_vaddr = as_vpage;
+		if(i == 0) {
+			coremap_start[(addr/PAGE_SIZE) + i].chunk_size = npages;
+		} 
+	}
+	as_zero_region(addr, npages);
+//	coremap_used_counter += npages;
+	spinlock_release(&coremap_lock);
+
+	return addr;
 }
 
 
@@ -131,11 +207,9 @@ void free_kpages (vaddr_t addr)
 {
 	paddr_t pages_paddr = addr - MIPS_KSEG0;
 
-	if(load_complete) {
-		spinlock_acquire(&coremap_lock);
-	}
-	KASSERT(pages_paddr % 4096 == 0);
-	unsigned int page_index = pages_paddr/4096;
+	spinlock_acquire(&coremap_lock);
+	KASSERT(pages_paddr % PAGE_SIZE == 0);
+	unsigned int page_index = pages_paddr/PAGE_SIZE;
 
 	unsigned int chunks = coremap_start[page_index].chunk_size;
 
@@ -144,17 +218,15 @@ void free_kpages (vaddr_t addr)
 		coremap_start[page_index + i].chunk_size = 0; 
 	}
 	coremap_used_counter -= chunks;
-	if(load_complete) {
-		spinlock_release(&coremap_lock);
-	}
+	spinlock_release(&coremap_lock);
 }
 
 void free_ppages(paddr_t page_paddr) {
 	spinlock_acquire(&coremap_lock);
 	
-	KASSERT(page_paddr % 4096 == 0);
+	KASSERT(page_paddr % PAGE_SIZE == 0);
 
-	unsigned int page_index = page_paddr/4096;
+	unsigned int page_index = page_paddr/PAGE_SIZE;
 	unsigned int chunks = coremap_start[page_index].chunk_size;
 	
 	KASSERT(chunks == 1);
@@ -167,15 +239,13 @@ void free_ppages(paddr_t page_paddr) {
 
 void tlb_invalidate_entry(vaddr_t remove_vaddr) {
 
-	uint32_t ehi, elo;	
+	//uint32_t ehi, elo;	
 	int spl = splhigh();
-        for (int i=0; i<NUM_TLB; i++) {
-                tlb_read(&ehi, &elo, i);
-                if (ehi == remove_vaddr) {
-			tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
-			break;
-		}
-        }
+	int index = -1;
+	index = tlb_probe(remove_vaddr, 0);
+	if (index >= 0) {
+		tlb_write(TLBHI_INVALID(index), TLBLO_INVALID(), index);
+	}
         splx(spl);	
 }
 
@@ -194,6 +264,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
 	faultaddress &= PAGE_FRAME;
 	as = proc_getas();
 	rg = as->start_region;
+	int err;
 
 	if (curproc == NULL) {
                 /*
@@ -240,7 +311,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
 		return EFAULT;
 	}
 	if(as->start_page_table == NULL) {
-		ppage  = getppages(1);
+		ppage  = getuserpage(1, as, faultaddress);
 		if(ppage == 0) {
 			return ENOMEM;
 		}
@@ -248,20 +319,35 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
 		pte = as->start_page_table;
 		pte->as_vpage = faultaddress;
 		pte->as_ppage = ppage;
+		pte->is_swapped = false;
 		pte->vpage_permission = 0;
 		pte->next = NULL; 	
 	} else {
 		pte = as->start_page_table;
 		while(pte != NULL) {
 			if(pte->as_vpage == faultaddress) {
-				ppage = pte->as_ppage;
+				if(pte->is_swapped == true) {
+					ppage = getuserpage(1, as, pte->as_vpage);
+					if(ppage == 0) {
+						return ENOMEM;
+					}
+					bool unmark = true;
+					err = diskblock_read(ppage, pte->diskpage_location, unmark);
+					if(err) {
+						panic("unable to read from diskblock");
+					}
+					pte->as_ppage = ppage;
+					pte->is_swapped = false;
+				}else {
+					ppage = pte->as_ppage;
+				}
 				break;
 			}
 			pte_prev = pte;
 			pte = pte->next;
 		}
 		if (pte == NULL) {
-			ppage  = getppages(1);
+			ppage  = getuserpage(1, as, faultaddress);
 			if(ppage == 0) {
 				return ENOMEM;
 			}
@@ -269,6 +355,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
 			pte = pte_prev->next;
                 	pte->as_vpage = faultaddress;
                 	pte->as_ppage = ppage;
+			pte->is_swapped = false;
                 	pte->vpage_permission = 0;
                 	pte->next = NULL;
 		}
@@ -300,7 +387,7 @@ unsigned int coremap_used_bytes(void){
 	//	spinlock_acquire(&coremap_lock);
 	//}
 	
-	return coremap_used_counter*4096;
+	return coremap_used_counter*PAGE_SIZE;
 	
 	//if(load_complete){
 	//	spinlock_release(&coremap_lock);
@@ -311,3 +398,95 @@ void vm_tlbshootdown(const struct tlbshootdown * ts) {
 	(void)ts;
 }
 
+int diskblock_read(paddr_t ppage_addr, unsigned int index, bool unmark) {
+	
+	struct iovec iov;
+	struct uio kuio;
+	
+	uio_kinit(&iov, &kuio, (void *)PADDR_TO_KVADDR(ppage_addr), PAGE_SIZE, index * PAGE_SIZE, UIO_READ);
+	KASSERT(bitmap_isset(swap.bitmap, index) != 0);
+
+	int err = VOP_READ(swap.vnode, &kuio);
+	if(err) {
+		return err;
+	}
+	if (unmark) {
+		bitmap_unmark(swap.bitmap, index);
+	}
+	return 0;
+}
+
+void bitmap_unmark_wrapper(unsigned int index) {
+	bitmap_unmark(swap.bitmap, index);
+}
+
+int diskblock_write(paddr_t ppage_addr, unsigned int *index) {
+	
+	unsigned int block_index;
+	struct iovec iov;
+	struct uio kuio;
+
+	int err = bitmap_alloc(swap.bitmap, &block_index);
+	if(err) {
+		return err;
+	}
+	
+
+	uio_kinit(&iov, &kuio, (void *)PADDR_TO_KVADDR(ppage_addr), PAGE_SIZE, block_index * PAGE_SIZE, UIO_WRITE);
+	
+	err = VOP_WRITE(swap.vnode, &kuio);
+	if(err) {
+		return err;
+	}
+
+	*index = block_index;
+
+	return 0;
+}
+
+paddr_t swapout(void) {
+	
+	struct addrspace *old_as;
+	vaddr_t old_vaddr;
+	paddr_t evicted_paddr;
+	struct page_table_entry *pte;
+	unsigned int diskblock_index;
+	int err;
+
+	KASSERT(spinlock_do_i_hold(&coremap_lock) == true);
+	while (coremap_start[roundrobin_counter].state != used) {
+		roundrobin_counter++;
+		if (roundrobin_counter == lastpaddr/PAGE_SIZE + 1) {
+			roundrobin_counter = firstpaddr/PAGE_SIZE;
+		}
+	}
+	old_as = coremap_start[roundrobin_counter].owner_addrspace;
+	old_vaddr = coremap_start[roundrobin_counter].owner_vaddr;
+	evicted_paddr = roundrobin_counter * PAGE_SIZE;
+
+	tlb_invalidate_entry(old_vaddr);
+	spinlock_release(&coremap_lock);	
+	err = diskblock_write(evicted_paddr, &diskblock_index);
+	if (err) {
+		panic("Cannot write to Disk");
+	}
+	spinlock_acquire(&coremap_lock);
+	KASSERT(old_as->start_page_table != NULL);
+	pte = old_as->start_page_table;
+	while(pte != NULL) {
+		if(pte->as_vpage == old_vaddr) {
+			KASSERT(pte->as_ppage == evicted_paddr);
+			pte->diskpage_location = diskblock_index;
+			pte->is_swapped = true;
+			break;
+		}
+		pte = pte->next;
+	}
+	KASSERT(pte != NULL);
+
+	roundrobin_counter++;
+	if (roundrobin_counter == lastpaddr/PAGE_SIZE + 1) {
+		roundrobin_counter = firstpaddr/PAGE_SIZE;
+	}
+	return evicted_paddr;
+}

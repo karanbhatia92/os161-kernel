@@ -59,7 +59,8 @@
  * The process for the kernel; this holds all the kernel-only threads.
  */
 struct proc *kproc;
-int proc_counter = 0;
+int proc_counter;
+struct proc *proc_table[OPEN_MAX];
 /*
  * Create a proc structure.
  */
@@ -96,7 +97,6 @@ proc_create(const char *name)
 	proc->proc_id = -1;
 	proc->parent_id = -1;
 	proc->exit_status = false;
-	proc->parent_waiting = false;
 	proc->exit_code = -1;	
 	proc->lock = lock_create("Proc_lock");
 	if(proc->lock == NULL) {

@@ -14,6 +14,7 @@
 #include <vnode.h>
 #include <vm.h>
 
+struct lock *arg_lock;
 int sys_fork(pid_t *child_pid, struct trapframe *tf) {
 	int i = 0;
 	int j = 0;	
@@ -70,6 +71,9 @@ int sys_fork(pid_t *child_pid, struct trapframe *tf) {
 */
 	//kprintf("PID %d forking child with PID : %d \n", childproc->parent_id, childproc->proc_id);
 	tf_child = (struct trapframe *)kmalloc(sizeof(struct trapframe));
+	if(tf_child == NULL) {
+		return ENOMEM;
+	}
 	//************ Test ***********//
 	//kprintf("Address inside tf is : %p , Address inside tf_child is %p , \n", tf, tf_child);
 	//if (tf == NULL || tf_child == NULL) {
@@ -105,7 +109,6 @@ int sys_waitpid(pid_t pid, int *status, int options, pid_t* retval) {
 		if(i == OPEN_MAX - 1)
 		return ESRCH;
 	}
-	proc_table[i]->parent_waiting = true;
 /*
 	while(proc_table[i]->proc_id != pid){
 		if(i == OPEN_MAX - 1){
@@ -188,20 +191,9 @@ void sys_exit(int exitcode){
 	curproc->exit_code = _MKWAIT_EXIT(exitcode);
 	KASSERT(curproc->exit_status == proc_table[i]->exit_status);
 	KASSERT(curproc->exit_code == proc_table[i]->exit_code);
-	if(curproc->parent_waiting){
-	//kprintf("PID %d Signaling Parent PID %d to wake up \n", curproc->proc_id, curproc->parent_id);
 	cv_signal(curproc->cv, curproc->lock);
 	lock_release(curproc->lock);
 	thread_exit();
-	} else {
-		
-		cv_signal(curproc->cv, curproc->lock);
-		//kprintf("No Parent waiting for PID %d, now destroying it \n", curproc->proc_id);
-		lock_release(curproc->lock);
-		//proc_table[i] = NULL;
-		//kprintf("After proc destroy \n");
-		thread_exit();
-	}
 }
 
 int sys_getpid(pid_t *curproc_pid) {
@@ -281,6 +273,7 @@ int sys_execv(const char *program, char **args1) {
 	if (result) {
 		lock_release(arg_lock);
 		as_destroy(as);
+		as_activate();
 		vfs_close(v);
 		return result;
 	}
@@ -395,8 +388,12 @@ int sys_sbrk(intptr_t amount, vaddr_t *retval) {
 			//bool found = false;
 			while(temp_pte != NULL) {
 				if(temp_pte->as_vpage == remove_vpage) {
-					free_ppages(temp_pte->as_ppage);
-					tlb_invalidate_entry(remove_vpage);
+					if(temp_pte->is_swapped) {
+						bitmap_unmark_wrapper(temp_pte->diskpage_location);	
+					} else {
+						free_ppages(temp_pte->as_ppage);
+						tlb_invalidate_entry(remove_vpage);
+					}
 					if(temp_pte == as->start_page_table) {
 						temp_pte = temp_pte->next;
 						kfree(prev_pte);

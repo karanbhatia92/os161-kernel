@@ -35,6 +35,7 @@
 #include <vm.h>
 #include <proc.h>
 #include <mips/tlb.h>
+#include <synch.h>
 /*
  * Note! If OPT_DUMBVM is set, as is the case until you start the VM
  * assignment, this file is not compiled or linked or in any way
@@ -56,6 +57,10 @@ as_create(void)
 	 */
 	as->start_region = NULL;
 	as->start_page_table = NULL;
+	as->page_table_lock = lock_create("Page_Table_Lock");
+	if(as->page_table_lock == NULL) {
+		return NULL; 
+	}
 	as->heap_start = 0;
 	as->heap_end = 0;
 	return as;
@@ -69,6 +74,7 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 	struct page_table_entry *old_pte = NULL;
 	struct region *old_region = NULL;
 	struct region *temp_region = NULL;
+	int err = -1;
 	paddr_t ppage = 0;
 
 	newas = as_create();
@@ -83,20 +89,35 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 		//if(newas->start_page_table == NULL) {
 		if(newas->start_page_table == NULL) {
 			temp_pte = kmalloc(sizeof(struct page_table_entry));
+			if(temp_pte == NULL) {
+				return ENOMEM;
+			}
 			newas->start_page_table = temp_pte;
 		}else {
 			KASSERT(temp_pte->next == NULL);
 			temp_pte->next = kmalloc(sizeof(struct page_table_entry));
+			if(temp_pte->next == NULL) {
+				return ENOMEM;
+			}
 			temp_pte = temp_pte->next;
 		}
 		temp_pte->as_vpage = old_pte->as_vpage;
 		temp_pte->vpage_permission = old_pte->vpage_permission;
 		temp_pte->next = NULL;
-		ppage = getppageswrapper(1);
+		ppage = getuserpage(1, newas, temp_pte->as_vpage);
 		if(ppage == 0) {
 			return ENOMEM;
 		}
-		memmove((void *)PADDR_TO_KVADDR(ppage),(const void *)PADDR_TO_KVADDR(old_pte->as_ppage),PAGE_SIZE);
+		if(old_pte->is_swapped == true) {
+			bool unmark = false;
+			err = diskblock_read(ppage, old_pte->diskpage_location, unmark);
+			if (err) {
+				panic("Cannot read from disk to memory");
+			}	
+		} else {
+			memmove((void *)PADDR_TO_KVADDR(ppage),(const void *)PADDR_TO_KVADDR(old_pte->as_ppage),PAGE_SIZE);
+		}
+		temp_pte->is_swapped = false;
 		temp_pte->as_ppage = ppage; 
 		old_pte = old_pte->next;	
 		/*}else {
@@ -115,10 +136,16 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 	while(old_region != NULL) {
 		if(newas->start_region == NULL) {
 			temp_region = kmalloc(sizeof(struct region));
+			if(temp_region == NULL) {
+				return ENOMEM;
+			}
 			newas->start_region = temp_region;
 		}else {
 			KASSERT(temp_region->next == NULL);
 			temp_region->next = kmalloc(sizeof(struct region));
+			if(temp_region->next == NULL) {
+				return ENOMEM;
+			}
 			temp_region = temp_region->next;
 		}
 		temp_region->start = old_region->start;
@@ -156,7 +183,11 @@ as_destroy(struct addrspace *as)
 	struct page_table_entry *prev_pte = NULL;
 	struct region *prev_rg = NULL;		
 	while(pte != NULL) {
-		free_ppages(pte->as_ppage);
+		if(pte->is_swapped) {
+			bitmap_unmark_wrapper(pte->diskpage_location);
+		} else {
+			free_ppages(pte->as_ppage);
+		}
 		prev_pte = pte;
 		pte = pte->next;
 		kfree(prev_pte);
@@ -166,6 +197,7 @@ as_destroy(struct addrspace *as)
 		rg = rg->next;
 		kfree(prev_rg);
 	}
+	lock_destroy(as->page_table_lock);
 	kfree(as);
 }
 
@@ -238,6 +270,9 @@ as_define_region(struct addrspace *as, vaddr_t vaddr, size_t memsize,
         npages = memsize / PAGE_SIZE;
 	if (as->start_region == NULL) {
 		current_region = kmalloc(sizeof(struct region));
+		if(current_region == NULL) {
+			return ENOMEM;
+		}
 		as->start_region = current_region;
 	} else {
 		current_region = as->start_region;
@@ -245,6 +280,9 @@ as_define_region(struct addrspace *as, vaddr_t vaddr, size_t memsize,
 			current_region = current_region->next;
 		}
 		current_region->next = kmalloc(sizeof(struct region));
+		if(current_region->next == NULL) {
+			return ENOMEM;
+		}
 		current_region = current_region->next;
 	}
 	current_region->start = vaddr;

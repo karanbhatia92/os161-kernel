@@ -135,20 +135,10 @@ kill_curthread(vaddr_t epc, unsigned code, vaddr_t vaddr)
         curproc->exit_code = _MKWAIT_SIG(sig);
         KASSERT(curproc->exit_status == proc_table[i]->exit_status);
         KASSERT(curproc->exit_code == proc_table[i]->exit_code);
-        if(curproc->parent_waiting){
         //kprintf("PID %d Signaling Parent PID %d to wake up \n", curproc->proc_id, curproc->parent_id);
         cv_signal(curproc->cv, curproc->lock);
         lock_release(curproc->lock);
         thread_exit();
-        } else {
-                //kprintf("No Parent waiting for PID %d, now destroying it \n", curproc->proc_id);
-                lock_release(curproc->lock);
-                //proc_destroy(curproc);
-                //proc_table[i] = NULL;
-                //kprintf("After proc destroy \n");
-                thread_exit();
-        }
-
 
 	/* Changes for crash all test end*/
 

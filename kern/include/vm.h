@@ -48,19 +48,32 @@
 #define VM_STACKPAGES 1024
 /*Coremap initialization start*/
 
-typedef enum {free, fixed} page_state;
+typedef enum {
+	free, 
+	fixed, 
+	used
+} page_state;
 
-struct coremap_page 
-{
+struct coremap_page {
         int chunk_size;
         page_state state;
+	struct addrspace *owner_addrspace;
+	vaddr_t owner_vaddr;
 };
 
+struct swap_disk {
+	struct bitmap *bitmap;
+	struct lock *lock;
+	struct vnode *vnode;
+	bool swap_disk_present;
+};
+
+extern struct swap_disk swap;
 void coremap_load(void);
 
 /* coremap initialization end*/
 
-paddr_t getppageswrapper(unsigned long pages);
+paddr_t getuserpage(unsigned long pages, struct addrspace *as, vaddr_t vpage_addr);
 
 /* Initialization function */
 void vm_bootstrap(void);
@@ -73,6 +86,10 @@ vaddr_t alloc_kpages(unsigned npages);
 void free_kpages(vaddr_t addr);
 void free_ppages(paddr_t page_paddr);
 void tlb_invalidate_entry(vaddr_t remove_vaddr);
+int diskblock_read(paddr_t ppage_addr, unsigned int index, bool unmark);
+int diskblock_write(paddr_t ppage_addr, unsigned int *index);
+void bitmap_unmark_wrapper(unsigned int index);
+paddr_t swapout(void);
 /*
  * Return amount of memory (in bytes) used by allocated coremap pages.  If
  * there are ongoing allocations, this value could change after it is returned

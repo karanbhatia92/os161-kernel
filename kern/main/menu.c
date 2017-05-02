@@ -150,7 +150,6 @@ common_prog(int nargs, char **args)
 	}
 	//kprintf("Done waiting on pid value : %d \n", p);
         lock_destroy(arg_lock);
-
 	/*
 	 * The new process will be destroyed when the program exits...
 	 * once you write the code for handling that.

@@ -79,7 +79,6 @@ struct proc {
 	pid_t proc_id;
 	pid_t parent_id;
 	bool exit_status;
-	bool parent_waiting;
 	int exit_code;
 	struct lock *lock;
 	struct cv *cv; 
