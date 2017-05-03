@@ -51,7 +51,8 @@
 typedef enum {
 	free, 
 	fixed, 
-	used
+	used,
+	in_eviction
 } page_state;
 
 struct coremap_page {
@@ -63,7 +64,7 @@ struct coremap_page {
 
 struct swap_disk {
 	struct bitmap *bitmap;
-	struct lock *lock;
+	//struct spinlock *spinlock;
 	struct vnode *vnode;
 	bool swap_disk_present;
 };
@@ -84,7 +85,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress);
 /* Allocate/free kernel heap pages (called by kmalloc/kfree) */
 vaddr_t alloc_kpages(unsigned npages);
 void free_kpages(vaddr_t addr);
-void free_ppages(paddr_t page_paddr);
+int free_ppages(paddr_t page_paddr);
 void tlb_invalidate_entry(vaddr_t remove_vaddr);
 int diskblock_read(paddr_t ppage_addr, unsigned int index, bool unmark);
 int diskblock_write(paddr_t ppage_addr, unsigned int *index);

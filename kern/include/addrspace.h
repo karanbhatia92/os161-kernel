@@ -55,6 +55,7 @@ struct page_table_entry {
 	int vpage_permission;
 	vpage_state state;
 	unsigned int diskpage_location;
+	struct lock *lock;
 	struct page_table_entry *next; 	
 };
 
@@ -88,7 +89,6 @@ struct addrspace {
         /* Put stuff here for your VM system */
 	struct region *start_region;
 	struct page_table_entry *start_page_table;
-	struct lock *page_table_lock;
 	vaddr_t heap_start;
 	vaddr_t heap_end;
 #endif

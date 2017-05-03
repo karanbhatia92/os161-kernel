@@ -57,10 +57,6 @@ as_create(void)
 	 */
 	as->start_region = NULL;
 	as->start_page_table = NULL;
-	as->page_table_lock = lock_create("Page_Table_Lock");
-	if(as->page_table_lock == NULL) {
-		return NULL; 
-	}
 	as->heap_start = 0;
 	as->heap_end = 0;
 	return as;
@@ -101,13 +97,21 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 			}
 			temp_pte = temp_pte->next;
 		}
+		temp_pte->lock = lock_create("PTE_Lock");
+		if(temp_pte->lock == NULL) {
+			kfree(temp_pte);
+			return ENOMEM;
+		}
+		lock_acquire(temp_pte->lock);
 		temp_pte->as_vpage = old_pte->as_vpage;
 		temp_pte->vpage_permission = old_pte->vpage_permission;
+		temp_pte->state = UNMAPPED;
 		temp_pte->next = NULL;
 		ppage = getuserpage(1, newas, temp_pte->as_vpage);
 		if(ppage == 0) {
 			return ENOMEM;
 		}
+		lock_acquire(old_pte->lock);
 		if(old_pte->state == SWAPPED) {
 			bool unmark = false;
 			err = diskblock_read(ppage, old_pte->diskpage_location, unmark);
@@ -117,8 +121,10 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 		} else {
 			memmove((void *)PADDR_TO_KVADDR(ppage),(const void *)PADDR_TO_KVADDR(old_pte->as_ppage),PAGE_SIZE);
 		}
+		lock_release(old_pte->lock);
 		temp_pte->state = MAPPED;
-		temp_pte->as_ppage = ppage; 
+		temp_pte->as_ppage = ppage;
+		lock_release(temp_pte->lock);
 		old_pte = old_pte->next;	
 		/*}else {
 			temp_pte->next = kmalloc(sizeof(struct page_table_entry));
@@ -180,16 +186,26 @@ as_destroy(struct addrspace *as)
 	KASSERT(as != NULL);
 	struct page_table_entry *pte = as->start_page_table;
 	struct region *rg = as->start_region;
+	int err;
 	struct page_table_entry *prev_pte = NULL;
 	struct region *prev_rg = NULL;		
 	while(pte != NULL) {
-		if(pte->state == SWAPPED) {
+		lock_acquire(pte->lock);
+		KASSERT(pte->state != UNMAPPED);
+		if (pte->state == SWAPPED) {
 			bitmap_unmark_wrapper(pte->diskpage_location);
 		} else {
-			free_ppages(pte->as_ppage);
+			err = free_ppages(pte->as_ppage); 
+			if (err) {
+				lock_release(pte->lock);
+				continue;
+			}			
 		}
+		lock_release(pte->lock);
+		lock_destroy(pte->lock);
 		prev_pte = pte;
 		pte = pte->next;
+		as->start_page_table = pte;
 		kfree(prev_pte);
 	}
 	while(rg != NULL) {
@@ -197,7 +213,6 @@ as_destroy(struct addrspace *as)
 		rg = rg->next;
 		kfree(prev_rg);
 	}
-	lock_destroy(as->page_table_lock);
 	kfree(as);
 }
 

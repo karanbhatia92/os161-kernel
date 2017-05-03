@@ -20,6 +20,7 @@ static paddr_t lastpaddr, firstpaddr;
 struct coremap_page *coremap_start;
 static int coremap_used_counter;
 static struct spinlock coremap_lock = SPINLOCK_INITIALIZER;
+static struct spinlock bitmaplock = SPINLOCK_INITIALIZER;
 struct swap_disk swap;
 static unsigned int roundrobin_counter;
 
@@ -72,7 +73,7 @@ void vm_bootstrap(void) {
 	err = vfs_open(diskpath, O_RDWR, 0, &v);
 	if (err) {
 		swap.vnode = NULL;
-		swap.lock = NULL;
+//		swap.spinlock = NULL;
 		swap.bitmap = NULL;
 		swap.swap_disk_present = false;	
 		return;
@@ -82,16 +83,18 @@ void vm_bootstrap(void) {
 	if (err) {
 		vfs_close(v);
 		swap.vnode = NULL;
-		swap.lock = NULL;
+//		swap.spinlock = NULL;
 		swap.bitmap = NULL;
 		swap.swap_disk_present = false;
 		return;
 	}
 	KASSERT(disk_stat.st_size % PAGE_SIZE == 0);
+	kprintf("Disk Size : %llu", disk_stat.st_size);
 	swap.bitmap = bitmap_create(disk_stat.st_size/PAGE_SIZE);
+	kprintf("Bitmap size : %llu", disk_stat.st_size/PAGE_SIZE);
 	KASSERT(swap.bitmap != NULL);
-	swap.lock = lock_create("Bitmap_Lock");
-	KASSERT(swap.lock != NULL);
+//	spinlock_init(swap.spinlock);
+//	KASSERT(swap.spinlock != NULL);
 	swap.swap_disk_present = true;
 	swap.vnode = v;
 }
@@ -221,7 +224,7 @@ void free_kpages (vaddr_t addr)
 	spinlock_release(&coremap_lock);
 }
 
-void free_ppages(paddr_t page_paddr) {
+int free_ppages(paddr_t page_paddr) {
 	spinlock_acquire(&coremap_lock);
 	
 	KASSERT(page_paddr % PAGE_SIZE == 0);
@@ -230,11 +233,19 @@ void free_ppages(paddr_t page_paddr) {
 	unsigned int chunks = coremap_start[page_index].chunk_size;
 	
 	KASSERT(chunks == 1);
-	coremap_start[page_index].state = free;
-	coremap_start[page_index].chunk_size = 0;
-	coremap_used_counter -= chunks;
-	spinlock_release(&coremap_lock);
-	
+	KASSERT(coremap_start[page_index].state != fixed);
+	if(coremap_start[page_index].state == in_eviction) {
+		spinlock_release(&coremap_lock);
+		return 1;
+	}else {
+		coremap_start[page_index].state = free;
+		coremap_start[page_index].chunk_size = 0;
+		coremap_start[page_index].owner_addrspace = NULL;
+		coremap_start[page_index].owner_vaddr = 0;
+		coremap_used_counter -= chunks;	
+		spinlock_release(&coremap_lock);
+	}
+	return 0; 	
 }
 
 void tlb_invalidate_entry(vaddr_t remove_vaddr) {
@@ -311,24 +322,36 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
 		return EFAULT;
 	}
 	if(as->start_page_table == NULL) {
-		ppage  = getuserpage(1, as, faultaddress);
-		if(ppage == 0) {
+		
+		as->start_page_table = kmalloc(sizeof(struct page_table_entry));
+		if(as->start_page_table == NULL) {
 			return ENOMEM;
 		}
-		as->start_page_table = kmalloc(sizeof(struct page_table_entry));
 		pte = as->start_page_table;
+		pte->lock = lock_create("PTE_Lock");
+		lock_acquire(pte->lock);
 		pte->as_vpage = faultaddress;
-		pte->as_ppage = ppage;
-		pte->state = MAPPED;
+		pte->state = UNMAPPED;
 		pte->vpage_permission = 0;
 		pte->next = NULL; 	
+		ppage  = getuserpage(1, as, faultaddress);
+		if(ppage == 0) {
+			lock_release(pte->lock);
+			lock_destroy(pte->lock);
+			kfree(pte);
+			return ENOMEM;
+		}
+		pte->as_ppage = ppage;
+		pte->state = MAPPED;
 	} else {
 		pte = as->start_page_table;
 		while(pte != NULL) {
 			if(pte->as_vpage == faultaddress) {
+				lock_acquire(pte->lock);
 				if(pte->state == SWAPPED) {
 					ppage = getuserpage(1, as, pte->as_vpage);
 					if(ppage == 0) {
+						lock_release(pte->lock);
 						return ENOMEM;
 					}
 					bool unmark = true;
@@ -338,8 +361,10 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
 					}
 					pte->as_ppage = ppage;
 					pte->state = MAPPED;
-				}else {
+				} else if (pte->state == MAPPED) {
 					ppage = pte->as_ppage;
+				} else {
+					kprintf("Code should never reach here!");
 				}
 				break;
 			}
@@ -347,17 +372,26 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
 			pte = pte->next;
 		}
 		if (pte == NULL) {
-			ppage  = getuserpage(1, as, faultaddress);
-			if(ppage == 0) {
+                	pte_prev->next = kmalloc(sizeof(struct page_table_entry));
+			if(pte_prev->next == NULL) {
 				return ENOMEM;
 			}
-                	pte_prev->next = kmalloc(sizeof(struct page_table_entry));
 			pte = pte_prev->next;
-                	pte->as_vpage = faultaddress;
-                	pte->as_ppage = ppage;
-			pte->state = MAPPED;
+			pte->lock = lock_create("PTE_Lock");
+                	lock_acquire(pte->lock);
+			pte->as_vpage = faultaddress;
+			pte->state = UNMAPPED;
                 	pte->vpage_permission = 0;
                 	pte->next = NULL;
+			ppage  = getuserpage(1, as, faultaddress);
+			if(ppage == 0) {
+				lock_release(pte->lock);
+				lock_destroy(pte->lock);
+				kfree(pte);
+				return ENOMEM;
+			}
+                	pte->as_ppage = ppage;
+			pte->state = MAPPED;
 		}
 	}
 	
@@ -373,12 +407,14 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
                 elo = ppage | TLBLO_DIRTY | TLBLO_VALID;
                 tlb_write(ehi, elo, i);
                 splx(spl);
+		lock_release(pte->lock);
                 return 0;
         }
 	ehi = faultaddress;
         elo = ppage | TLBLO_DIRTY | TLBLO_VALID;
 	tlb_random(ehi, elo);
         splx(spl);	 
+	lock_release(pte->lock);
 	return 0;
 }
 
@@ -411,13 +447,17 @@ int diskblock_read(paddr_t ppage_addr, unsigned int index, bool unmark) {
 		return err;
 	}
 	if (unmark) {
+		spinlock_acquire(&bitmaplock);
 		bitmap_unmark(swap.bitmap, index);
+		spinlock_release(&bitmaplock);
 	}
 	return 0;
 }
 
 void bitmap_unmark_wrapper(unsigned int index) {
+	spinlock_acquire(&bitmaplock);
 	bitmap_unmark(swap.bitmap, index);
+	spinlock_release(&bitmaplock);
 }
 
 int diskblock_write(paddr_t ppage_addr, unsigned int *index) {
@@ -425,9 +465,12 @@ int diskblock_write(paddr_t ppage_addr, unsigned int *index) {
 	unsigned int block_index;
 	struct iovec iov;
 	struct uio kuio;
-
+	
+	spinlock_acquire(&bitmaplock);
 	int err = bitmap_alloc(swap.bitmap, &block_index);
+	spinlock_release(&bitmaplock);
 	if(err) {
+		kprintf("Problem in bitmap : %d", err);
 		return err;
 	}
 	
@@ -436,6 +479,7 @@ int diskblock_write(paddr_t ppage_addr, unsigned int *index) {
 	
 	err = VOP_WRITE(swap.vnode, &kuio);
 	if(err) {
+		kprintf("Problem in VOP Write");
 		return err;
 	}
 
@@ -463,30 +507,36 @@ paddr_t swapout(void) {
 	old_as = coremap_start[roundrobin_counter].owner_addrspace;
 	old_vaddr = coremap_start[roundrobin_counter].owner_vaddr;
 	evicted_paddr = roundrobin_counter * PAGE_SIZE;
-
-	tlb_invalidate_entry(old_vaddr);
-	spinlock_release(&coremap_lock);	
-	err = diskblock_write(evicted_paddr, &diskblock_index);
-	if (err) {
-		panic("Cannot write to Disk");
+	coremap_start[roundrobin_counter].state = in_eviction;
+	roundrobin_counter++;
+	if (roundrobin_counter == lastpaddr/PAGE_SIZE + 1) {
+		roundrobin_counter = firstpaddr/PAGE_SIZE;
 	}
-	spinlock_acquire(&coremap_lock);
+	spinlock_release(&coremap_lock);
+	
 	KASSERT(old_as->start_page_table != NULL);
 	pte = old_as->start_page_table;
 	while(pte != NULL) {
 		if(pte->as_vpage == old_vaddr) {
+			lock_acquire(pte->lock);
 			KASSERT(pte->as_ppage == evicted_paddr);
-			pte->diskpage_location = diskblock_index;
-			pte->state = SWAPPED;
+			KASSERT(pte->state == MAPPED);
 			break;
 		}
 		pte = pte->next;
 	}
 	KASSERT(pte != NULL);
-
-	roundrobin_counter++;
-	if (roundrobin_counter == lastpaddr/PAGE_SIZE + 1) {
-		roundrobin_counter = firstpaddr/PAGE_SIZE;
+	tlb_invalidate_entry(old_vaddr);
+	err = diskblock_write(evicted_paddr, &diskblock_index);
+	if (err) {
+		panic("Cannot write to Disk");
 	}
+	pte->diskpage_location = diskblock_index;
+	pte->state = SWAPPED;
+	lock_release(pte->lock);
+	spinlock_acquire(&coremap_lock);
+	
+	KASSERT(coremap_start[evicted_paddr/PAGE_SIZE].owner_addrspace == old_as);
+	KASSERT(coremap_start[evicted_paddr/PAGE_SIZE].owner_vaddr == old_vaddr);	
 	return evicted_paddr;
 }

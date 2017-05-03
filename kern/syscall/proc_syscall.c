@@ -313,6 +313,7 @@ int sys_sbrk(intptr_t amount, vaddr_t *retval) {
 	long old_break;
 	struct addrspace *as;
 	int pages;
+	int err;
 	long new_break;
 	vaddr_t remove_vpage;
 	struct page_table_entry *temp_pte;
@@ -388,25 +389,34 @@ int sys_sbrk(intptr_t amount, vaddr_t *retval) {
 			//bool found = false;
 			while(temp_pte != NULL) {
 				if(temp_pte->as_vpage == remove_vpage) {
+					lock_acquire(temp_pte->lock);
 					if(temp_pte->state == SWAPPED) {
 						bitmap_unmark_wrapper(temp_pte->diskpage_location);	
 					} else {
-						free_ppages(temp_pte->as_ppage);
+						err = free_ppages(temp_pte->as_ppage);
+						if (err) {
+							lock_release(temp_pte->lock);
+							continue;	
+						}
 						tlb_invalidate_entry(remove_vpage);
 					}
+					lock_release(temp_pte->lock);
 					if(temp_pte == as->start_page_table) {
 						temp_pte = temp_pte->next;
-						kfree(prev_pte);
 						as->start_page_table = temp_pte;
+						lock_destroy(prev_pte->lock);
+						kfree(prev_pte);
 						//found = true;
 						break;		
 					} else if (temp_pte->next == NULL) {
-						kfree(temp_pte);
 						prev_pte->next = NULL;
+						lock_destroy(temp_pte->lock);
+						kfree(temp_pte);
 						//found = true;
 						break;
 					} else {
 						temp_pte = temp_pte->next;
+						lock_destroy(prev_pte->next->lock);
 						kfree(prev_pte->next);
 						prev_pte->next = temp_pte;
 						//found = true;
