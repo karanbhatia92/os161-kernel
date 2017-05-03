@@ -40,6 +40,12 @@
 
 struct vnode;
 
+typedef enum {
+        MAPPED,
+        UNMAPPED,
+        SWAPPED
+} vpage_state;
+
 /*
  * Page Table Entry of a process
  */
@@ -47,7 +53,7 @@ struct page_table_entry {
 	vaddr_t as_vpage;
 	paddr_t as_ppage;
 	int vpage_permission;
-	bool is_swapped;
+	vpage_state state;
 	unsigned int diskpage_location;
 	struct page_table_entry *next; 	
 };

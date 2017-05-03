@@ -319,14 +319,14 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
 		pte = as->start_page_table;
 		pte->as_vpage = faultaddress;
 		pte->as_ppage = ppage;
-		pte->is_swapped = false;
+		pte->state = MAPPED;
 		pte->vpage_permission = 0;
 		pte->next = NULL; 	
 	} else {
 		pte = as->start_page_table;
 		while(pte != NULL) {
 			if(pte->as_vpage == faultaddress) {
-				if(pte->is_swapped == true) {
+				if(pte->state == SWAPPED) {
 					ppage = getuserpage(1, as, pte->as_vpage);
 					if(ppage == 0) {
 						return ENOMEM;
@@ -337,7 +337,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
 						panic("unable to read from diskblock");
 					}
 					pte->as_ppage = ppage;
-					pte->is_swapped = false;
+					pte->state = MAPPED;
 				}else {
 					ppage = pte->as_ppage;
 				}
@@ -355,7 +355,7 @@ int vm_fault(int faulttype, vaddr_t faultaddress)
 			pte = pte_prev->next;
                 	pte->as_vpage = faultaddress;
                 	pte->as_ppage = ppage;
-			pte->is_swapped = false;
+			pte->state = MAPPED;
                 	pte->vpage_permission = 0;
                 	pte->next = NULL;
 		}
@@ -477,7 +477,7 @@ paddr_t swapout(void) {
 		if(pte->as_vpage == old_vaddr) {
 			KASSERT(pte->as_ppage == evicted_paddr);
 			pte->diskpage_location = diskblock_index;
-			pte->is_swapped = true;
+			pte->state = SWAPPED;
 			break;
 		}
 		pte = pte->next;

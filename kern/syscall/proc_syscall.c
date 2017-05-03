@@ -388,7 +388,7 @@ int sys_sbrk(intptr_t amount, vaddr_t *retval) {
 			//bool found = false;
 			while(temp_pte != NULL) {
 				if(temp_pte->as_vpage == remove_vpage) {
-					if(temp_pte->is_swapped) {
+					if(temp_pte->state == SWAPPED) {
 						bitmap_unmark_wrapper(temp_pte->diskpage_location);	
 					} else {
 						free_ppages(temp_pte->as_ppage);

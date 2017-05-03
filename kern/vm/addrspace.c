@@ -108,7 +108,7 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 		if(ppage == 0) {
 			return ENOMEM;
 		}
-		if(old_pte->is_swapped == true) {
+		if(old_pte->state == SWAPPED) {
 			bool unmark = false;
 			err = diskblock_read(ppage, old_pte->diskpage_location, unmark);
 			if (err) {
@@ -117,7 +117,7 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 		} else {
 			memmove((void *)PADDR_TO_KVADDR(ppage),(const void *)PADDR_TO_KVADDR(old_pte->as_ppage),PAGE_SIZE);
 		}
-		temp_pte->is_swapped = false;
+		temp_pte->state = MAPPED;
 		temp_pte->as_ppage = ppage; 
 		old_pte = old_pte->next;	
 		/*}else {
@@ -183,7 +183,7 @@ as_destroy(struct addrspace *as)
 	struct page_table_entry *prev_pte = NULL;
 	struct region *prev_rg = NULL;		
 	while(pte != NULL) {
-		if(pte->is_swapped) {
+		if(pte->state == SWAPPED) {
 			bitmap_unmark_wrapper(pte->diskpage_location);
 		} else {
 			free_ppages(pte->as_ppage);
