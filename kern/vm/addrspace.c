@@ -107,7 +107,7 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 		temp_pte->vpage_permission = old_pte->vpage_permission;
 		temp_pte->state = UNMAPPED;
 		temp_pte->next = NULL;
-		ppage = getuserpage(1, newas, temp_pte->as_vpage);
+		ppage = getuserpage(1, newas, temp_pte->as_vpage, true);
 		if(ppage == 0) {
 			return ENOMEM;
 		}

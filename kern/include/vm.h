@@ -60,6 +60,7 @@ struct coremap_page {
         page_state state;
 	struct addrspace *owner_addrspace;
 	vaddr_t owner_vaddr;
+	bool ref_bit;
 };
 
 struct swap_disk {
@@ -74,7 +75,7 @@ void coremap_load(void);
 
 /* coremap initialization end*/
 
-paddr_t getuserpage(unsigned long pages, struct addrspace *as, vaddr_t vpage_addr);
+paddr_t getuserpage(unsigned long pages, struct addrspace *as, vaddr_t vpage_addr, bool copy_call);
 
 /* Initialization function */
 void vm_bootstrap(void);
