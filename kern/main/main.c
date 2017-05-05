@@ -111,7 +111,7 @@ boot(void)
 	/* Early initialization. */
 	ram_bootstrap();
 
-	coremap_load();
+	//coremap_load();
 
 	proc_bootstrap();
 	thread_bootstrap();

@@ -307,7 +307,7 @@ int sys_execv(const char *program, char **args1) {
 	enter_new_process(arg_counter, argv_ex, NULL, stackptr, entrypoint);
 	return EINVAL;
 }
-
+/*
 int sys_sbrk(intptr_t amount, vaddr_t *retval) {
 	
 	long old_break;
@@ -354,7 +354,7 @@ int sys_sbrk(intptr_t amount, vaddr_t *retval) {
 		}
 
 
-		/*	
+		*	
 		new_pages_addr = getppageswrapper(pages);
 		if(new_pages_addr == 0) {
 			return ENOMEM;
@@ -376,7 +376,7 @@ int sys_sbrk(intptr_t amount, vaddr_t *retval) {
 			KASSERT(temp_pte->as_ppage % PAGE_SIZE == 0);
 			temp_pte->vpage_permission = 0;
 		}
-		*/	
+		*
 	}else {
 		if(new_break < (long)as->heap_start) {
 			return EINVAL;
@@ -427,14 +427,14 @@ int sys_sbrk(intptr_t amount, vaddr_t *retval) {
 					temp_pte = temp_pte->next;
 				}
 			}
-			/*
+			*
 			if (found == false) {
 				return EINVAL;
 			}
-			*/
+			*
 		}
 	}
 	as->heap_end = (vaddr_t)new_break;
 	*retval = (vaddr_t)old_break;
 	return 0;
-}
+}*/
