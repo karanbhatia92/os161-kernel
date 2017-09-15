@@ -349,7 +349,7 @@ file      proc/proc.c
 #
 
 file      vm/kmalloc.c
-
+file	  vm/vm.c
 optofffile dumbvm   vm/addrspace.c
 
 #
@@ -387,7 +387,8 @@ file      vfs/devnull.c
 file      syscall/loadelf.c
 file      syscall/runprogram.c
 file      syscall/time_syscalls.c
-
+file	  syscall/file_syscall.c
+file	  syscall/proc_syscall.c
 #
 # Startup and initialization
 #

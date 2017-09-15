@@ -38,12 +38,44 @@
 
 
 #include <machine/vm.h>
+#include <synch.h>
 
 /* Fault-type arguments to vm_fault() */
 #define VM_FAULT_READ        0    /* A read was attempted */
 #define VM_FAULT_WRITE       1    /* A write was attempted */
 #define VM_FAULT_READONLY    2    /* A write to a readonly page was attempted*/
 
+#define VM_STACKPAGES 1024
+/*Coremap initialization start*/
+
+typedef enum {
+	free, 
+	fixed, 
+	used,
+	in_eviction
+} page_state;
+
+struct coremap_page {
+        int chunk_size;
+        page_state state;
+	struct addrspace *owner_addrspace;
+	vaddr_t owner_vaddr;
+	bool ref_bit;
+};
+
+struct swap_disk {
+	struct bitmap *bitmap;
+	//struct spinlock *spinlock;
+	struct vnode *vnode;
+	bool swap_disk_present;
+};
+
+extern struct swap_disk swap;
+void coremap_load(void);
+
+/* coremap initialization end*/
+
+paddr_t getuserpage(unsigned long pages, struct addrspace *as, vaddr_t vpage_addr, bool copy_call);
 
 /* Initialization function */
 void vm_bootstrap(void);
@@ -54,7 +86,12 @@ int vm_fault(int faulttype, vaddr_t faultaddress);
 /* Allocate/free kernel heap pages (called by kmalloc/kfree) */
 vaddr_t alloc_kpages(unsigned npages);
 void free_kpages(vaddr_t addr);
-
+int free_ppages(paddr_t page_paddr);
+void tlb_invalidate_entry(vaddr_t remove_vaddr);
+int diskblock_read(paddr_t ppage_addr, unsigned int index, bool unmark);
+int diskblock_write(paddr_t ppage_addr, unsigned int *index);
+void bitmap_unmark_wrapper(unsigned int index);
+paddr_t swapout(void);
 /*
  * Return amount of memory (in bytes) used by allocated coremap pages.  If
  * there are ongoing allocations, this value could change after it is returned

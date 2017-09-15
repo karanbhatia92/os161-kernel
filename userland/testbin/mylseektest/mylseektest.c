@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2001, 2002, 2003, 2004, 2005, 2008, 2009
+ * Copyright (c) 2014
  *	The President and Fellows of Harvard College.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,95 +27,50 @@
  * SUCH DAMAGE.
  */
 
-#include <unistd.h>
-#include <string.h>
-#include <err.h>
-
 /*
- * cat - concatenate and print
- * Usage: cat [files]
+ * Create a sparse file by writing one byte to the end of it.
+ *
+ * Should work on emufs (emu0:) once the basic system calls are done,
+ * and should work on SFS when the file system assignment is
+ * done. Sufficiently small files should work on SFS even before that
+ * assignment.
  */
 
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <err.h>
+#include <string.h>
+#include <test161/test161.h>
 
-
-/* Print a file that's already been opened. */
-static
-void
-docat(const char *name, int fd)
+//#define FILENAME "mylseektest.dat"
+//static const char *MAGIC = "h4xa0rRq0Vgbc96tiYJ^!#nXzZSAKPO";
+int main()//int argc, char *argv[])
 {
-	char buf[1024];
-	int len, wr, wrtot;
-
-	/*
-	 * As long as we get more than zero bytes, we haven't hit EOF.
-	 * Zero means EOF. Less than zero means an error occurred.
-	 * We may read less than we asked for, though, in various cases
-	 * for various reasons.
-	 */
-	while ((len = read(fd, buf, sizeof(buf)))>0) {
-		/*
-		 * Likewise, we may actually write less than we attempted
-		 * to. So loop until we're done.
-		 */
-		
-		wrtot = 0;
-		while (wrtot < len) {
-			wr = write(STDOUT_FILENO, buf+wrtot, len-wrtot);
-			if (wr<0) {
-				err(1, "stdout");
-			}
-			wrtot += wr;
-		}
-	}
-	/*
-	 * If we got a read error, print it and exit.
-	 */
-	if (len<0) {
-		err(1, "%s", name);
-	}
+	const char *args[6];
+	args[0] = "Pratik";
+	args[1] = "Bhindi";
+	args[2] = "Kha";
+	args[3] = "Raha";
+	args[4] = "Hai";
+	args[5] = NULL;
+	int err = execv("/testbin/opentest", (char **)args);
+	tprintf("Should not reach here, err : %d \n", err);
 }
-
-/* Print a file by name. */
-static
-void
-cat(const char *file)
+/* Fork Test
 {
-	int fd;
-
-	/*
-	 * "-" means print stdin.
-	 */
-	if (!strcmp(file, "-")) {
-		docat("stdin", STDIN_FILENO);
-		return;
-	}
-
-	/*
-	 * Open the file, print it, and close it.
-	 * Bail out if we can't open it.
-	 */
-	fd = open(file, O_RDONLY);
-	if (fd<0) {
-		err(1, "%s", file);
-	}
-	docat(file, fd);
-	close(fd);
-}
-
-
-int
-main(int argc, char *argv[])
-{
-	if (argc==1) {
-		/* No args - just do stdin */
-		docat("stdin", STDIN_FILENO);
-	}
-	else {
-		/* Print all the files specified on the command line. */
-		int i;
-		for (i=1; i<argc; i++) {
-			cat(argv[i]);
-		}
+	int pid = fork();
+	if(pid > 0){
+		int status = 0;
+		pid_t ret = waitpid(pid, &status, 0);
+		tprintf("parent pid : %d", ret);
+	} else if(pid == 0) {
+		tprintf("child");
+		_exit(0);
+	} else {
+		tprintf("Not parant, not child");
 	}
 	return 0;
 }
+Fork Test end */

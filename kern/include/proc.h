@@ -38,6 +38,10 @@
 
 #include <spinlock.h>
 
+//To include file handle
+#include <file_syscall.h>
+#include <limits.h> 
+#include <thread.h>
 struct addrspace;
 struct thread;
 struct vnode;
@@ -71,6 +75,14 @@ struct proc {
 	struct vnode *p_cwd;		/* current working directory */
 
 	/* add more material here as needed */
+	struct file_handle *file_table[OPEN_MAX];
+	pid_t proc_id;
+	pid_t parent_id;
+	bool exit_status;
+	int exit_code;
+	struct lock *lock;
+	struct cv *cv; 
+//	struct thread *t_thread;
 };
 
 /* This is the process structure for the kernel and for kernel-only threads. */
@@ -97,5 +109,5 @@ struct addrspace *proc_getas(void);
 /* Change the address space of the current process, and return the old one. */
 struct addrspace *proc_setas(struct addrspace *);
 
-
+struct proc *process_create(const char *name);
 #endif /* _PROC_H_ */

@@ -40,6 +40,12 @@
 #include <mainbus.h>
 #include <syscall.h>
 
+/* Includes for Crash All test*/
+#include <limits.h>
+#include <synch.h>
+#include <proc_syscall.h>
+#include <kern/wait.h>
+/* Includes for crash all test end*/
 
 /* in exception-*.S */
 extern __DEAD void asm_usermode(struct trapframe *tf);
@@ -112,9 +118,34 @@ kill_curthread(vaddr_t epc, unsigned code, vaddr_t vaddr)
 	 * You will probably want to change this.
 	 */
 
+	/* Changes for Crash All Test start*/
+	
+	int i = 0;
+	for(i = 0; i < OPEN_MAX; i++){
+                if(proc_table[i] != NULL){
+                        if(proc_table[i]->proc_id == curproc->proc_id)
+                        break;
+                }
+                if(i == OPEN_MAX - 1)
+                panic("Current process not found in process table");
+        }
+        //kprintf("Called exit for PID %d in proc table at %d : %s \n", proc_table[i]->proc_id, i, curproc->p_name);
+        lock_acquire(curproc->lock);
+        curproc->exit_status = true;
+        curproc->exit_code = _MKWAIT_SIG(sig);
+        KASSERT(curproc->exit_status == proc_table[i]->exit_status);
+        KASSERT(curproc->exit_code == proc_table[i]->exit_code);
+        //kprintf("PID %d Signaling Parent PID %d to wake up \n", curproc->proc_id, curproc->parent_id);
+        cv_signal(curproc->cv, curproc->lock);
+        lock_release(curproc->lock);
+        thread_exit();
+
+	/* Changes for crash all test end*/
+
 	kprintf("Fatal user mode trap %u sig %d (%s, epc 0x%x, vaddr 0x%x)\n",
 		code, sig, trapcodenames[code], epc, vaddr);
-	panic("I don't know how to handle this\n");
+	//panic("I don't know how to handle this\n");
+	//thread_exit();
 }
 
 /*

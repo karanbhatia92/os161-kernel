@@ -52,6 +52,8 @@
 #include <version.h>
 #include "autoconf.h"  // for pseudoconfig
 
+#include <vm.h> //coremap
+
 
 /*
  * These two pieces of data are maintained by the makefiles and build system.
@@ -108,6 +110,9 @@ boot(void)
 
 	/* Early initialization. */
 	ram_bootstrap();
+
+	coremap_load();
+
 	proc_bootstrap();
 	thread_bootstrap();
 	hardclock_bootstrap();

@@ -73,6 +73,8 @@ machine mips file    vm/copyinout.c		# copyin/out et al.
 defoption   dumbvm
 machine mips optfile dumbvm    arch/mips/vm/dumbvm.c
 
+#defoption   mipsvm
+#machine mips optfile mipsvm     arch/mips/vm/mipsvm.c
 #
 # System call layer
 #

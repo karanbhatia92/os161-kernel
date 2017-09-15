@@ -35,8 +35,9 @@
 #include <thread.h>
 #include <current.h>
 #include <syscall.h>
-
-
+#include <file_syscall.h>
+#include <proc_syscall.h>
+#include <addrspace.h>
 /*
  * System call dispatcher.
  *
@@ -80,7 +81,10 @@ syscall(struct trapframe *tf)
 {
 	int callno;
 	int32_t retval;
+	uint32_t ret1;
+	uint32_t ret2;
 	int err;
+	bool lseek_flag = false;
 
 	KASSERT(curthread != NULL);
 	KASSERT(curthread->t_curspl == 0);
@@ -110,6 +114,56 @@ syscall(struct trapframe *tf)
 		break;
 
 	    /* Add stuff here */
+	    case SYS_open:
+		err = sys_open((const char *)tf->tf_a0, (int)tf->tf_a1, &retval);
+		break;
+		
+	    case SYS_read:
+		err = sys_read((int)tf->tf_a0, (void *)tf->tf_a1, (size_t)tf->tf_a2, &retval);
+		break;
+
+	    case SYS_write:
+		err = sys_write((int)tf->tf_a0, (void *)tf->tf_a1, (size_t)tf->tf_a2, &retval);
+		break;
+
+	    case SYS_close:
+		err = sys_close((int)tf->tf_a0);
+		break;
+
+	    case SYS_lseek:
+		lseek_flag = true;
+		err = sys_lseek((int)tf->tf_a0, (int32_t)tf->tf_a2, (int32_t)tf->tf_a3, tf->tf_sp+16, &ret1, &ret2);	
+		break;
+	    
+	    case SYS_dup2:
+		err = sys_dup2((int)tf->tf_a0, (int)tf->tf_a1, &retval);
+		break;
+
+	    case SYS_fork:
+		err = sys_fork((pid_t *)&retval, tf);
+		break;
+
+	    case SYS_getpid:
+		err = sys_getpid((pid_t *)&retval);
+		break;
+
+	    case SYS_waitpid:
+		err = sys_waitpid((pid_t)tf->tf_a0, (int *)tf->tf_a1, (int)tf->tf_a2,(pid_t *)&retval);
+		//kprintf("Finished waitpid\n");
+		break;
+
+	    case SYS__exit:
+		sys_exit((int)tf->tf_a0);
+		err = 0;
+		break;
+
+	    case SYS_execv:
+		err = sys_execv((const char *)tf->tf_a0,  (char **)tf->tf_a1);
+		break;
+		
+	    case SYS_sbrk:
+		err = sys_sbrk((intptr_t)tf->tf_a0, (vaddr_t *)&retval);
+		break;
 
 	    default:
 		kprintf("Unknown syscall %d\n", callno);
@@ -127,10 +181,15 @@ syscall(struct trapframe *tf)
 		tf->tf_v0 = err;
 		tf->tf_a3 = 1;      /* signal an error */
 	}
-	else {
+	else if (!lseek_flag) {
 		/* Success. */
 		tf->tf_v0 = retval;
 		tf->tf_a3 = 0;      /* signal no error */
+	}
+	else {
+		tf->tf_v0 = ret1;
+		tf->tf_v1 = ret2;
+		tf->tf_a3 = 0;
 	}
 
 	/*
@@ -155,7 +214,16 @@ syscall(struct trapframe *tf)
  * Thus, you can trash it and do things another way if you prefer.
  */
 void
-enter_forked_process(struct trapframe *tf)
+enter_forked_process(void *void_tf, unsigned long num)
 {
-	(void)tf;
+	(void)num;
+        as_activate();
+	struct trapframe tf_child = *(struct trapframe *)void_tf;
+	kfree((struct trapframe *)void_tf);
+        tf_child.tf_v0 = 0;
+        tf_child.tf_a3 = 0;
+        tf_child.tf_epc += 4;
+	
+	//curproc->p_addrspace = (struct addrspace *)child_addrspace;
+	mips_usermode(&tf_child);
 }

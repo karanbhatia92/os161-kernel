@@ -49,11 +49,18 @@
 #include <addrspace.h>
 #include <vnode.h>
 
+//Includes for Console Initialization
+#include <synch.h>
+#include <kern/fcntl.h>
+#include <vfs.h>
+/* Include for Process Syscalls */
+#include <proc_syscall.h>
 /*
  * The process for the kernel; this holds all the kernel-only threads.
  */
 struct proc *kproc;
-
+int proc_counter;
+struct proc *proc_table[OPEN_MAX];
 /*
  * Create a proc structure.
  */
@@ -82,6 +89,25 @@ proc_create(const char *name)
 	/* VFS fields */
 	proc->p_cwd = NULL;
 
+	/* Setting file table to NULL*/
+	for (int i = 0; i < OPEN_MAX; i++)
+		proc->file_table[i] = NULL;
+
+	/* Process call related changes start here */
+	proc->proc_id = -1;
+	proc->parent_id = -1;
+	proc->exit_status = false;
+	proc->exit_code = -1;	
+	proc->lock = lock_create("Proc_lock");
+	if(proc->lock == NULL) {
+		return NULL;
+	}
+	proc->cv = cv_create("Proc_cv");
+	if(proc->cv == NULL) {
+		return NULL;
+	}
+	/* Process Call related changes end here  */	
+
 	return proc;
 }
 
@@ -96,15 +122,13 @@ proc_destroy(struct proc *proc)
 {
 	/*
 	 * You probably want to destroy and null out much of the
-	 * process (particularly the address space) at exit time if
+`	 * process (particularly the address space) at exit time if
 	 * your wait/exit design calls for the process structure to
 	 * hang around beyond process exit. Some wait/exit designs
 	 * do, some don't.
 	 */
-
 	KASSERT(proc != NULL);
 	KASSERT(proc != kproc);
-
 	/*
 	 * We don't take p_lock in here because we must have the only
 	 * reference to this structure. (Otherwise it would be
@@ -162,14 +186,38 @@ proc_destroy(struct proc *proc)
 			as = proc->p_addrspace;
 			proc->p_addrspace = NULL;
 		}
+
 		as_destroy(as);
 	}
 
-	KASSERT(proc->p_numthreads == 0);
+	/* Destorying proc fields - start  */
+	for(int i = 0; i < OPEN_MAX; i++) {
+                if(proc->file_table[i] != NULL){
+                        lock_acquire(proc->file_table[i]->lock);
+                        proc->file_table[i]->destroy_count--;
+			if(proc->file_table[i]->destroy_count > 0) {
+				lock_release(proc->file_table[i]->lock);
+                		proc->file_table[i] = NULL;
+        		}else {
+				lock_release(proc->file_table[i]->lock);
+                		KASSERT(proc->file_table[i]->destroy_count == 0);
+                		lock_destroy(proc->file_table[i]->lock);
+                		vfs_close(proc->file_table[i]->vnode);
+                		kfree(proc->file_table[i]);
+                		proc->file_table[i] = NULL;
+        		}
+                        //lock_release(proc->file_table[i]->lock);
+                }
+        }
+	lock_destroy(proc->lock);
+	cv_destroy(proc->cv);	
+	/*Destroying proc fields - end */
+	
+	//KASSERT(proc->p_numthreads == 0);
 	spinlock_cleanup(&proc->p_lock);
-
 	kfree(proc->p_name);
 	kfree(proc);
+
 }
 
 /*
@@ -193,6 +241,7 @@ proc_bootstrap(void)
 struct proc *
 proc_create_runprogram(const char *name)
 {
+
 	struct proc *newproc;
 
 	newproc = proc_create(name);
@@ -205,19 +254,179 @@ proc_create_runprogram(const char *name)
 	newproc->p_addrspace = NULL;
 
 	/* VFS fields */
+	newproc->proc_id = 2;
+	newproc->parent_id = 0;
+
+	/* Process related syscall changes start here */	
+	/* Setting proc table to NULL*/
+	for (int i = 0; i < OPEN_MAX; i++)
+		proc_table[i] = NULL;
+	proc_table[0] = newproc;
+	proc_counter = 2;
+	arg_lock = lock_create("Arg_lock");
+
+	KASSERT(arg_lock != NULL);	
+	/* Process related syscall changes end here */
+
+	/* Console Initialization for STDIN*/
+	int err = -1;
+	
+	char *con0 = kstrdup("con:");
+	if (con0 == NULL) {
+		return NULL;
+	}
+
+	newproc->file_table[0] = (struct file_handle *)kmalloc(sizeof(struct file_handle));
+	if (newproc->file_table[0] == NULL) {
+		kfree(con0);
+		return NULL;
+	}
+
+	err = vfs_open(con0, O_RDONLY, 0, &newproc->file_table[0]->vnode);
+	if (err) {
+	        kfree(con0);
+		kfree(newproc->file_table[0]);
+		return NULL;
+	}
+	kfree(con0);
+
+	newproc->file_table[0]->offset = 0;
+	newproc->file_table[0]->con_file = true;
+
+	newproc->file_table[0]->lock = lock_create("STDIN");
+
+	if (newproc->file_table[0]->lock == NULL) {
+		kfree(con0);
+		vfs_close(newproc->file_table[0]->vnode);
+                kfree(newproc->file_table[0]);
+	}
+	newproc->file_table[0]->destroy_count = 1;
+	newproc->file_table[0]->mode_open = O_RDONLY;
+
+	/* Console Initialization for STDOUT*/
+
+        char *con1 = kstrdup("con:");
+        if (con1 == NULL) {
+                kfree(con0);
+		lock_destroy(newproc->file_table[0]->lock);
+		vfs_close(newproc->file_table[0]->vnode);
+                kfree(newproc->file_table[0]);
+		return NULL;
+        }
+
+	err = -1;
+        newproc->file_table[1] = (struct file_handle *)kmalloc(sizeof(struct file_handle));
+        if (newproc->file_table[1] == NULL) {
+		kfree(con0);
+		lock_destroy(newproc->file_table[0]->lock);
+                vfs_close(newproc->file_table[0]->vnode);
+                kfree(newproc->file_table[0]);
+                kfree(con1);
+                return NULL;
+        }
+        err = vfs_open(con1, O_RDONLY, 0, &newproc->file_table[1]->vnode);
+        if (err) {
+		kfree(con0);
+		lock_destroy(newproc->file_table[0]->lock);
+                vfs_close(newproc->file_table[0]->vnode);
+                kfree(newproc->file_table[0]);
+                kfree(con1);
+                kfree(newproc->file_table[1]);
+                return NULL;
+        }
+	kfree(con1);
+	newproc->file_table[1]->offset = 0;
+	newproc->file_table[1]->con_file = true;
+        newproc->file_table[1]->lock = lock_create("STDOUT");
+        if (newproc->file_table[1]->lock == NULL) {
+                kfree(con0);
+		lock_destroy(newproc->file_table[0]->lock);
+		vfs_close(newproc->file_table[0]->vnode);
+                kfree(newproc->file_table[0]);
+		kfree(con1);
+                vfs_close(newproc->file_table[1]->vnode);
+                kfree(newproc->file_table[1]);
+        }
+        newproc->file_table[1]->destroy_count = 1;
+        newproc->file_table[1]->mode_open = O_WRONLY;
+
+	/* Console Initialization for STDERR*/
+
+        char *con2 = kstrdup("con:");
+        if (con2 == NULL) {
+                kfree(con0);
+                lock_destroy(newproc->file_table[0]->lock);
+                vfs_close(newproc->file_table[0]->vnode);
+                kfree(newproc->file_table[0]);
+                kfree(con1);
+                vfs_close(newproc->file_table[1]->vnode);
+		lock_destroy(newproc->file_table[1]->lock);
+                kfree(newproc->file_table[1]);
+		return NULL;
+        }
+        newproc->file_table[2] = (struct file_handle *)kmalloc(sizeof(struct file_handle));
+        if (newproc->file_table[2] == NULL) {
+                kfree(con0);
+                lock_destroy(newproc->file_table[0]->lock);
+                vfs_close(newproc->file_table[0]->vnode);
+                kfree(newproc->file_table[0]);
+                kfree(con1);
+                vfs_close(newproc->file_table[1]->vnode);
+                lock_destroy(newproc->file_table[1]->lock);
+                kfree(newproc->file_table[1]);
+		kfree(con2);
+		return NULL;
+        }
+
+	err = -1;
+        err = vfs_open(con2, O_RDONLY, 0, &newproc->file_table[2]->vnode);
+        if (err) {
+                kfree(con0);
+                lock_destroy(newproc->file_table[0]->lock);
+                vfs_close(newproc->file_table[0]->vnode);
+                kfree(newproc->file_table[0]);
+                kfree(con1);
+                vfs_close(newproc->file_table[1]->vnode);
+                lock_destroy(newproc->file_table[1]->lock);
+                kfree(newproc->file_table[1]);
+                kfree(con2);
+		kfree(newproc->file_table[2]);
+                return NULL;
+        }
+	kfree(con2);
+	newproc->file_table[2]->offset = 0;
+	newproc->file_table[2]->con_file = true;
+        newproc->file_table[2]->lock = lock_create("STDERR");
+        if (newproc->file_table[2]->lock == NULL) {
+                kfree(con0);
+                lock_destroy(newproc->file_table[0]->lock);
+                vfs_close(newproc->file_table[0]->vnode);
+                kfree(newproc->file_table[0]);
+                kfree(con1);
+                vfs_close(newproc->file_table[1]->vnode);
+		lock_destroy(newproc->file_table[1]->lock);
+                kfree(newproc->file_table[1]);
+		kfree(con2);
+                vfs_close(newproc->file_table[2]->vnode);
+		kfree(newproc->file_table[2]);
+        }
+        newproc->file_table[2]->destroy_count = 1;
+        newproc->file_table[2]->mode_open = O_WRONLY;
+
+	/* Console Initialization Done */	
 
 	/*
 	 * Lock the current process to copy its current directory.
 	 * (We don't need to lock the new process, though, as we have
 	 * the only reference to it.)
 	 */
+
 	spinlock_acquire(&curproc->p_lock);
 	if (curproc->p_cwd != NULL) {
 		VOP_INCREF(curproc->p_cwd);
 		newproc->p_cwd = curproc->p_cwd;
 	}
 	spinlock_release(&curproc->p_lock);
-
 	return newproc;
 }
 
@@ -317,4 +526,8 @@ proc_setas(struct addrspace *newas)
 	proc->p_addrspace = newas;
 	spinlock_release(&proc->p_lock);
 	return oldas;
+}
+
+struct proc * process_create(const char *name) {
+	return proc_create(name);
 }
